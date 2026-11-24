@@ -1,10 +1,10 @@
 import SwiftUI
+import QuartzCore
+import simd
 
-// MARK: - Single-Layer Lightweight Native iOS 26/27 Glass Background Plate (Zero Nesting / 120fps Safe)
+// MARK: - Single-Layer Lightweight Native iOS 26/27 Glass Background Plates (Zero Nesting / 120fps Safe)
 
 extension View {
-    /// Applies a single flat native `.glassEffect` background layer strictly behind `self`
-    /// without wrapping child subtrees or creating full-screen backdrop container overhead.
     @ViewBuilder
     func singleLayerGlassPlate(
         useNative: Bool,
@@ -54,9 +54,33 @@ extension View {
         self
         #endif
     }
+
+    @ViewBuilder
+    func singleLayerGlassCircle(useNative: Bool, tintMode: GlassTintMode) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *), useNative {
+            self.background {
+                if let tint = tintMode.nativeTintOverlay {
+                    Circle()
+                        .fill(Color.clear)
+                        .glassEffect(.regular.tint(tint), in: .circle)
+                } else {
+                    Circle()
+                        .fill(Color.clear)
+                        .glassEffect(.regular, in: .circle)
+                }
+            }
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
 }
 
-// MARK: - Strict Single-Axis Horizontal Liquid Dock (Guaranteed Z-Order: Base -> Capsule -> Icons)
+// MARK: - Apple Native Two-Part Single-Axis Optical Magnifier Liquid Dock
+// Structure: Left Main Capsule (78% width: 專注, 探索, 音樂, 控制) + 10pt Gap + Right Independent Circular Glass Sphere (工坊)
 
 struct NativeLiquidDockOverlay: View {
     let controller: GlassSceneController
@@ -65,191 +89,447 @@ struct NativeLiquidDockOverlay: View {
     @State private var dragLocalX: CGFloat? = nil
     @State private var isDraggingHorizontally: Bool = false
     @State private var horizontalStretch: CGFloat = 1.0
-    @State private var scrubStartTab: DockTab = .lensLab
+    @State private var scrubStartTab: DockTab = .focusHourglass
+    @State private var isPressingStudioOrb: Bool = false
 
     var body: some View {
-        let dockW = controller.dockWidth(for: screenWidth)
-        let dockLeft = (screenWidth - dockW) * 0.5
-        let slotCount = DockTab.allCases.count
-        let innerPad: CGFloat = 6.0
-        let slotW = (dockW - innerPad * 2.0) / CGFloat(slotCount)
-        let minLocalCenterX = innerPad + slotW * 0.5
-        let maxLocalCenterX = dockW - innerPad - slotW * 0.5
+        let mainW = controller.dockMainCapsuleWidth(for: screenWidth)
+        let gap = controller.dockSplitGap
+        let orbD = controller.dockStudioOrbDiameter
+        let dockH = controller.dockHeight
+        let totalW = controller.dockTotalAssemblyWidth(for: screenWidth)
+        let assemblyLeft = controller.dockAssemblyLeft(for: screenWidth)
 
-        let selectedCenterX = innerPad + slotW * (CGFloat(controller.selectedTab.rawValue) + 0.5)
+        let mainTabs = DockTab.mainCapsuleTabs
+        let slotCount = mainTabs.count
+        let innerPad: CGFloat = 5.0
+        let slotW = (mainW - innerPad * 2.0) / CGFloat(slotCount)
+        let minLocalCenterX = innerPad + slotW * 0.5
+        let maxLocalCenterX = mainW - innerPad - slotW * 0.5
+
+        let activeMainIdx = controller.selectedTab.isMainCapsuleTab ? controller.selectedTab.rawValue : 0
+        let selectedCenterX = innerPad + slotW * (CGFloat(activeMainIdx) + 0.5)
         let currentLocalX = min(max(dragLocalX ?? selectedCenterX, minLocalCenterX), maxLocalCenterX)
 
         let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
         let useNative = controller.useNativeSystemGlass
+        let showMainPillIndicator = controller.selectedTab.isMainCapsuleTab || isDraggingHorizontally
 
-        ZStack {
-            // LAYER 1 (zIndex 0): Dock Glass Base Plate
-            if useNative {
-                Color.clear
-                    .frame(width: dockW, height: 64)
-                    .singleLayerGlassCapsule(useNative: true, tintMode: controller.tintMode)
-                    .overlay(
-                        Capsule()
-                            .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.8)
-                    )
-                    .zIndex(0)
-            } else {
-                // In Metal mode, base plate is rendered in MTKView; subtle rim keeps crisp alignment
-                Capsule()
-                    .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.7)
-                    .frame(width: dockW, height: 64)
-                    .zIndex(0)
-            }
-
-            // LAYER 2 (zIndex 1): Horizontal-Locked Refracting Selection Capsule (Strictly Above Base & Below Icons!)
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: useNative
-                            ? [
-                                Color.white.opacity(isDraggingHorizontally ? 0.30 : 0.20),
-                                Color.cyan.opacity(isDraggingHorizontally ? 0.24 : 0.14)
-                            ]
-                            : [
-                                Color.white.opacity(isDraggingHorizontally ? 0.12 : 0.06),
-                                Color.cyan.opacity(isDraggingHorizontally ? 0.10 : 0.04)
-                            ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(
+        HStack(spacing: gap) {
+            // PART 1: Left Main Capsule (78% width — 專注, 探索, 音樂, 控制)
+            ZStack {
+                // LAYER 0: Base Plate (Automatically becomes clearer/more transparent when sliding!)
+                if useNative {
+                    Color.clear
+                        .frame(width: mainW, height: dockH)
+                        .singleLayerGlassCapsule(useNative: true, tintMode: controller.tintMode)
+                        .opacity(isDraggingHorizontally ? 0.68 : 1.0)
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(Color.white.opacity(isDraggingHorizontally ? 0.30 : 0.20), lineWidth: 0.8)
+                        )
+                        .zIndex(0)
+                } else {
                     Capsule()
-                        .strokeBorder(
+                        .fill(Color.white.opacity(isDraggingHorizontally ? 0.01 : 0.03))
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(Color.white.opacity(isDraggingHorizontally ? 0.26 : 0.16), lineWidth: 0.75)
+                        )
+                        .frame(width: mainW, height: dockH)
+                        .zIndex(0)
+                }
+
+                // LAYER 1: Dual-State Resting Inset <-> Expanding High-Refraction Convex Magnifier Water-Droplet!
+                if showMainPillIndicator {
+                    let lensWidth = isDraggingHorizontally ? (slotW + 8.0) : max(36.0, slotW - 4.0)
+                    let lensHeight: CGFloat = isDraggingHorizontally ? 56.0 : 48.0
+
+                    Capsule()
+                        .fill(
                             LinearGradient(
-                                colors: [
-                                    Color.white.opacity(isDraggingHorizontally ? 0.92 : 0.55),
-                                    Color.cyan.opacity(isDraggingHorizontally ? 0.75 : 0.35),
-                                    Color(red: 0.68, green: 0.48, blue: 1.0).opacity(isDraggingHorizontally ? 0.65 : 0.22)
-                                ],
+                                colors: isDraggingHorizontally
+                                    ? [
+                                        Color.white.opacity(useNative ? 0.34 : 0.16),
+                                        DockTab.skyBlueAccent.opacity(useNative ? 0.22 : 0.10)
+                                    ]
+                                    : [
+                                        Color.white.opacity(useNative ? 0.14 : 0.08),
+                                        Color.white.opacity(useNative ? 0.08 : 0.04)
+                                    ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
-                            ),
-                            lineWidth: isDraggingHorizontally ? 1.5 : 1.0
+                            )
                         )
-                )
-                .shadow(color: Color.cyan.opacity(isDraggingHorizontally ? 0.28 : 0.10), radius: 6, y: 0)
-                .frame(width: max(36, slotW - 4.0), height: 52)
-                .scaleEffect(x: horizontalStretch, y: 1.0)
-                // Y is strictly locked to 32.0 (vertical center of 64pt Dock)!
-                .position(x: currentLocalX, y: 32.0)
-                .animation(
-                    isDraggingHorizontally ? nil : .spring(response: 0.30, dampingFraction: 0.72),
-                    value: currentLocalX
-                )
-                .zIndex(1)
-
-            // LAYER 3 (zIndex 2): Navigation Icons & Text Labels (Strictly On Top!)
-            HStack(spacing: 0) {
-                ForEach(DockTab.allCases) { tab in
-                    let tabCenterX = innerPad + slotW * (CGFloat(tab.rawValue) + 0.5)
-                    let normDist = abs(tabCenterX - currentLocalX) / max(1.0, slotW)
-                    let proximity = max(0.0, 1.0 - normDist)
-                    let smoothProx = proximity * proximity * (3.0 - 2.0 * proximity)
-
-                    // Subtle in-place optical zoom strictly inside slot bounds
-                    let itemScale = 1.0 + (isDraggingHorizontally ? 0.16 : 0.06) * smoothProx
-                    let isSelected = (controller.selectedTab == tab)
-                    let isPinned = isTabPinned(tab)
-
-                    VStack(spacing: 2.5) {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: tab.icon)
-                                .font(.system(size: 16.5, weight: isSelected ? .black : .semibold))
-                                .foregroundStyle(
-                                    smoothProx > 0.45
-                                        ? (controller.wallpaper.isBrightBackground && controller.tintMode != .dark
-                                            ? Color(red: 0.02, green: 0.38, blue: 0.65)
-                                            : Color.cyan)
-                                        : primary.opacity(isSelected ? 1.0 : 0.72)
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: isDraggingHorizontally
+                                            ? [
+                                                Color.white.opacity(0.96),
+                                                DockTab.skyBlueAccent.opacity(0.88),
+                                                Color(red: 0.68, green: 0.46, blue: 1.0).opacity(0.76),
+                                                Color(red: 1.0, green: 0.52, blue: 0.64).opacity(0.62)
+                                            ]
+                                            : [
+                                                Color.white.opacity(0.28),
+                                                DockTab.skyBlueAccent.opacity(0.20)
+                                            ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: isDraggingHorizontally ? 1.65 : 0.85
                                 )
+                        )
+                        .shadow(
+                            color: DockTab.skyBlueAccent.opacity(isDraggingHorizontally ? 0.34 : 0.06),
+                            radius: isDraggingHorizontally ? 9 : 4,
+                            y: 0
+                        )
+                        .frame(width: lensWidth, height: lensHeight)
+                        .scaleEffect(
+                            x: horizontalStretch,
+                            y: isDraggingHorizontally ? (1.0 / max(0.92, sqrt(horizontalStretch))) : 1.0
+                        )
+                        // Y-Axis strictly locked to dockH * 0.5 (31.0pt)! Vertical drag 100% ignored!
+                        .position(x: currentLocalX, y: dockH * 0.5)
+                        .animation(
+                            isDraggingHorizontally ? nil : .spring(response: 0.32, dampingFraction: 0.64),
+                            value: currentLocalX
+                        )
+                        .animation(.spring(response: 0.24, dampingFraction: 0.68), value: isDraggingHorizontally)
+                        .zIndex(1)
+                }
 
-                            if isPinned {
-                                Circle()
-                                    .fill(Color.cyan)
-                                    .frame(width: 5, height: 5)
-                                    .offset(x: 6, y: -2)
+                // LAYER 2: 4 Main Tab Icons & Labels (Optical Magnification + Chromatic Fringe Under Moving Lens!)
+                HStack(spacing: 0) {
+                    ForEach(mainTabs) { tab in
+                        let tabCenterX = innerPad + slotW * (CGFloat(tab.rawValue) + 0.5)
+                        let normDist = abs(tabCenterX - currentLocalX) / max(1.0, slotW * 0.95)
+                        let proximity = showMainPillIndicator ? max(0.0, 1.0 - normDist) : 0.0
+                        let smoothProx = proximity * proximity * (3.0 - 2.0 * proximity)
+
+                        // Optical convex lens zoom when droplet glides across slot!
+                        let itemScale = 1.0 + (isDraggingHorizontally ? 0.22 : 0.04) * smoothProx
+                        let isSelected = (controller.selectedTab == tab)
+                        let isPinned = isTabPinned(tab)
+                        let chromaOffset = isDraggingHorizontally ? (1.25 * smoothProx) : 0.0
+
+                        let activeIconColor: Color = controller.wallpaper.isBrightBackground && controller.tintMode != .dark
+                            ? Color(red: 0.02, green: 0.44, blue: 0.76)
+                            : DockTab.skyBlueAccent // #38BDF8 Bright Sky Blue!
+
+                        VStack(spacing: 2.5) {
+                            ZStack(alignment: .topTrailing) {
+                                // Subtle RGB chromatic dispersion halo when inside moving convex water droplet!
+                                if chromaOffset > 0.15 {
+                                    Image(systemName: tab.icon)
+                                        .font(.system(size: 16.5, weight: .bold))
+                                        .foregroundStyle(Color(red: 1.0, green: 0.28, blue: 0.48).opacity(0.48 * smoothProx))
+                                        .offset(x: -chromaOffset, y: -0.3)
+                                    Image(systemName: tab.icon)
+                                        .font(.system(size: 16.5, weight: .bold))
+                                        .foregroundStyle(Color.cyan.opacity(0.55 * smoothProx))
+                                        .offset(x: chromaOffset, y: 0.3)
+                                }
+
+                                Image(systemName: tab.icon)
+                                    .font(.system(size: 16.5, weight: isSelected ? .black : .semibold))
+                                    .foregroundStyle(
+                                        (isSelected || (isDraggingHorizontally && smoothProx > 0.45))
+                                            ? activeIconColor
+                                            : primary.opacity(0.68)
+                                    )
+
+                                if isPinned {
+                                    Circle()
+                                        .fill(DockTab.skyBlueAccent)
+                                        .frame(width: 5, height: 5)
+                                        .offset(x: 6, y: -2)
+                                }
                             }
+                            .frame(height: 21)
+
+                            Text(tab.title)
+                                .font(.system(size: 10.5, weight: isSelected ? .bold : .medium, design: .rounded))
+                                .foregroundStyle(
+                                    isSelected
+                                        ? activeIconColor
+                                        : primary.opacity(smoothProx > 0.45 ? 0.96 : 0.66)
+                                )
                         }
+                        .scaleEffect(itemScale)
+                        .frame(width: slotW, height: dockH)
+                        .contentShape(Rectangle())
+                    }
+                }
+                .padding(.horizontal, innerPad)
+                .frame(width: mainW, height: dockH)
+                .zIndex(2)
+            }
+            .frame(width: mainW, height: dockH)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if !isDraggingHorizontally {
+                            isDraggingHorizontally = true
+                            scrubStartTab = controller.selectedTab
+                            // Velocity-preserving mid-flight catch: start from live spring X if already in main capsule!
+                            if controller.selectedTab.isMainCapsuleTab {
+                                let liveX = min(max(controller.liveDockThumbLocalX, minLocalCenterX), maxLocalCenterX)
+                                let targetX = min(max(value.location.x, minLocalCenterX), maxLocalCenterX)
+                                dragLocalX = liveX + (targetX - liveX) * 0.65
+                            } else {
+                                dragLocalX = min(max(value.location.x, minLocalCenterX), maxLocalCenterX)
+                            }
+                            HapticsManager.shared.tapSoft(intensity: 0.55)
+                        } else {
+                            // Strictly 1D X-axis lock — Y movement 100% ignored!
+                            let clampedX = min(max(value.location.x, minLocalCenterX), maxLocalCenterX)
+                            dragLocalX = clampedX
+                        }
+
+                        // Allow sliding right across the 10pt gap onto the Studio Orb!
+                        if value.location.x > mainW + gap * 0.6 {
+                            if controller.selectedTab != .opticalStudio {
+                                controller.selectedTab = .opticalStudio
+                                controller.triggerStudioOrbPulse()
+                                HapticsManager.shared.selection()
+                            }
+                            return
+                        }
+
+                        let activeX = dragLocalX ?? selectedCenterX
+                        let speedRatio = min(0.18, abs(value.velocity.width) / 2100.0)
+                        horizontalStretch = 1.0 + speedRatio
+
+                        controller.updateDockHorizontalScrub(
+                            clampedScreenX: assemblyLeft + activeX,
+                            velocityX: value.velocity.width,
+                            isDragging: true
+                        )
+
+                        let rawIdx = Int(((activeX - innerPad) / max(1.0, slotW)).rounded(.down))
+                        let idx = min(slotCount - 1, max(0, rawIdx))
+                        let hovered = mainTabs[idx]
+                        if hovered != controller.selectedTab {
+                            controller.selectedTab = hovered
+                            HapticsManager.shared.selection()
+                        }
+                    }
+                    .onEnded { value in
+                        let movedX = abs(value.translation.width)
+                        if movedX < 6.0 && controller.selectedTab == scrubStartTab && controller.selectedTab != .focusHourglass {
+                            // Tapping an already-active secondary tab can stay or give light tactile acknowledgement
+                            HapticsManager.shared.tapLight(intensity: 0.42)
+                        } else {
+                            HapticsManager.shared.tapLight(intensity: 0.46)
+                        }
+
+                        isDraggingHorizontally = false
+                        dragLocalX = nil
+                        withAnimation(.spring(response: 0.30, dampingFraction: 0.62)) {
+                            horizontalStretch = 1.0
+                        }
+                        controller.endDockHorizontalScrub(releaseVelocityX: value.velocity.width)
+                    }
+            )
+
+            // PART 2: Independent Circular Glass Sphere (10pt Gap — 工坊 Optical Lab!)
+            let isStudioActive = (controller.selectedTab == .opticalStudio)
+            let studioIconColor: Color = controller.wallpaper.isBrightBackground && controller.tintMode != .dark
+                ? Color(red: 0.02, green: 0.44, blue: 0.76)
+                : DockTab.skyBlueAccent
+
+            ZStack {
+                if useNative {
+                    Color.clear
+                        .frame(width: orbD, height: orbD)
+                        .singleLayerGlassCircle(useNative: true, tintMode: controller.tintMode)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: isStudioActive
+                                            ? [Color.white.opacity(0.90), DockTab.skyBlueAccent.opacity(0.75)]
+                                            : [Color.white.opacity(0.26), Color.white.opacity(0.10)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: isStudioActive ? 1.4 : 0.8
+                                )
+                        )
+                } else {
+                    Circle()
+                        .fill(isStudioActive ? DockTab.skyBlueAccent.opacity(0.10) : Color.white.opacity(0.03))
+                        .overlay(
+                            Circle()
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: isStudioActive
+                                            ? [Color.white.opacity(0.88), DockTab.skyBlueAccent.opacity(0.78), Color(red: 0.68, green: 0.48, blue: 1.0).opacity(0.55)]
+                                            : [Color.white.opacity(0.22), Color.white.opacity(0.08)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: isStudioActive ? 1.4 : 0.75
+                                )
+                        )
+                        .frame(width: orbD, height: orbD)
+                }
+
+                VStack(spacing: 2.5) {
+                    Image(systemName: DockTab.opticalStudio.icon)
+                        .font(.system(size: 16.5, weight: isStudioActive ? .black : .semibold))
+                        .foregroundStyle(isStudioActive ? studioIconColor : primary.opacity(0.76))
                         .frame(height: 21)
 
-                        Text(tab.title)
-                            .font(.system(size: 10.5, weight: isSelected ? .bold : .medium, design: .rounded))
-                            .foregroundStyle(primary.opacity(smoothProx > 0.45 ? 1.0 : 0.70))
-                    }
-                    .scaleEffect(itemScale)
-                    .frame(width: slotW, height: 64)
-                    .contentShape(Rectangle())
+                    Text(DockTab.opticalStudio.title)
+                        .font(.system(size: 10.5, weight: isStudioActive ? .bold : .medium, design: .rounded))
+                        .foregroundStyle(isStudioActive ? studioIconColor : primary.opacity(0.70))
                 }
             }
-            .padding(.horizontal, innerPad)
-            .frame(width: dockW, height: 64)
-            .zIndex(2)
+            .frame(width: orbD, height: orbD)
+            .scaleEffect(isPressingStudioOrb ? 1.12 : (isStudioActive ? 1.04 : 1.0))
+            .shadow(color: DockTab.skyBlueAccent.opacity(isStudioActive || isPressingStudioOrb ? 0.28 : 0.0), radius: 8)
+            .animation(.spring(response: 0.28, dampingFraction: 0.58), value: isPressingStudioOrb)
+            .animation(.spring(response: 0.30, dampingFraction: 0.65), value: isStudioActive)
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !isPressingStudioOrb {
+                            isPressingStudioOrb = true
+                            controller.triggerStudioOrbPulse()
+                            HapticsManager.shared.tapSoft(intensity: 0.58)
+                        }
+                    }
+                    .onEnded { _ in
+                        isPressingStudioOrb = false
+                        if controller.selectedTab == .opticalStudio {
+                            controller.selectedTab = .focusHourglass
+                        } else {
+                            controller.selectedTab = .opticalStudio
+                        }
+                        HapticsManager.shared.selection()
+                    }
+            )
         }
-        .frame(width: dockW, height: 64)
-        .clipShape(Capsule())
-        .contentShape(Capsule())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    if !isDraggingHorizontally {
-                        isDraggingHorizontally = true
-                        scrubStartTab = controller.selectedTab
-                        HapticsManager.shared.tapSoft(intensity: 0.55)
-                    }
-
-                    // Strictly lock to X axis ONLY — ignore value.location.y & value.translation.height completely!
-                    let clampedX = min(max(value.location.x, minLocalCenterX), maxLocalCenterX)
-                    dragLocalX = clampedX
-
-                    let speedRatio = min(0.14, abs(value.velocity.width) / 2400.0)
-                    horizontalStretch = 1.0 + speedRatio
-
-                    controller.updateDockHorizontalScrub(
-                        clampedScreenX: dockLeft + clampedX,
-                        velocityX: value.velocity.width,
-                        isDragging: true
-                    )
-
-                    let rawIdx = Int(((clampedX - innerPad) / max(1.0, slotW)).rounded(.down))
-                    let idx = min(slotCount - 1, max(0, rawIdx))
-                    let hovered = DockTab.allCases[idx]
-                    if hovered != controller.selectedTab {
-                        controller.selectedTab = hovered
-                        HapticsManager.shared.selection()
-                    }
-                }
-                .onEnded { value in
-                    let movedX = abs(value.translation.width)
-                    if movedX < 7.0 && controller.selectedTab == scrubStartTab && controller.selectedTab != .lensLab {
-                        controller.selectedTab = .lensLab
-                        HapticsManager.shared.selection()
-                    } else {
-                        HapticsManager.shared.tapLight(intensity: 0.45)
-                    }
-
-                    isDraggingHorizontally = false
-                    dragLocalX = nil
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.68)) {
-                        horizontalStretch = 1.0
-                    }
-                    controller.endDockHorizontalScrub()
-                }
-        )
+        .frame(width: totalW, height: dockH)
     }
 
     private func isTabPinned(_ tab: DockTab) -> Bool {
         switch tab {
         case .musicBeat: return controller.pinnedMusic
         case .controlHub: return controller.pinnedControl
-        case .weatherSolar: return controller.pinnedWeather
-        case .lensLab, .opticalStudio: return false
+        default: return false
         }
+    }
+}
+
+// MARK: - Velocity-Preserving 120Hz Spring Card State (Zero Mid-Flight Grab Jump & Zero Idle CPU!)
+
+@MainActor
+@Observable
+final class VelocityCardSpringState {
+    var offset: CGSize = .zero
+    private var velocity: SIMD2<Float> = .zero
+    private var isDragging: Bool = false
+    private var lastTranslation: CGSize = .zero
+    private var displayLink: CADisplayLink?
+    private var lastTick: CFTimeInterval = 0
+
+    func onDragChanged(translation: CGSize, velocity gestureVel: CGSize, sync: (CGSize) -> Void) {
+        if !isDragging {
+            isDragging = true
+            lastTranslation = .zero
+            stopDisplayLink()
+            // Notice: offset & velocity keep their EXACT live mid-flight values — zero teleport!
+        }
+        let dx = translation.width - lastTranslation.width
+        let dy = translation.height - lastTranslation.height
+        lastTranslation = translation
+
+        offset = CGSize(width: offset.width + dx, height: offset.height + dy)
+        let gv = SIMD2<Float>(Float(gestureVel.width), Float(gestureVel.height))
+        velocity = velocity * 0.30 + gv * 0.70
+        sync(offset)
+    }
+
+    func onDragEnded(velocity gestureVel: CGSize, bounds: CGSize, sync: @escaping (CGSize, CGSize?) -> Void) {
+        isDragging = false
+        lastTranslation = .zero
+        let gv = SIMD2<Float>(Float(gestureVel.width), Float(gestureVel.height))
+        velocity = velocity * 0.25 + gv * 0.75
+        sync(offset, gestureVel)
+        startSettleLoop(bounds: bounds, sync: sync)
+    }
+
+    private func startSettleLoop(bounds: CGSize, sync: @escaping (CGSize, CGSize?) -> Void) {
+        stopDisplayLink()
+        lastTick = CACurrentMediaTime()
+        let proxy = DisplayLinkTarget { [weak self] link in
+            guard let self = self else {
+                link.invalidate()
+                return
+            }
+            self.stepSettle(now: link.timestamp, bounds: bounds, sync: sync)
+        }
+        let link = CADisplayLink(target: proxy, selector: #selector(DisplayLinkTarget.tick(_:)))
+        if #available(iOS 15.0, *) {
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        }
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func stepSettle(now: CFTimeInterval, bounds: CGSize, sync: (CGSize, CGSize?) -> Void) {
+        let dt = Float(min(max(now - lastTick, 1.0 / 240.0), 1.0 / 30.0))
+        lastTick = now
+
+        // Soft boundary clamping with spring overshoot & momentum decay
+        let cur = SIMD2<Float>(Float(offset.width), Float(offset.height))
+        let maxX = Float(bounds.width)
+        let maxY = Float(bounds.height)
+        let clampedTarget = SIMD2<Float>(
+            min(max(cur.x, -maxX), maxX),
+            min(max(cur.y, -maxY), maxY)
+        )
+
+        let boundaryForce = -320.0 * (cur - clampedTarget)
+        velocity += boundaryForce * dt
+        velocity *= exp(-7.5 * dt)
+        let next = cur + velocity * dt
+        offset = CGSize(width: CGFloat(next.x), height: CGFloat(next.y))
+        sync(offset, nil)
+
+        if simd_length(velocity) < 3.0 && simd_distance(next, clampedTarget) < 0.6 {
+            offset = CGSize(width: CGFloat(clampedTarget.x), height: CGFloat(clampedTarget.y))
+            velocity = .zero
+            sync(offset, nil)
+            stopDisplayLink()
+        }
+    }
+
+    func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+}
+
+private final class DisplayLinkTarget: NSObject {
+    let handler: @MainActor (CADisplayLink) -> Void
+
+    init(handler: @escaping @MainActor (CADisplayLink) -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    @objc func tick(_ link: CADisplayLink) {
+        handler(link)
     }
 }
 
@@ -271,7 +551,7 @@ struct LiquidJellyToggle: View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 12.5, weight: .bold))
-                .foregroundStyle(isOn ? Color.cyan : primaryColor.opacity(0.75))
+                .foregroundStyle(isOn ? DockTab.skyBlueAccent : primaryColor.opacity(0.75))
                 .frame(width: 18)
 
             Text(title)
@@ -283,7 +563,7 @@ struct LiquidJellyToggle: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(isOn ? Color(red: 0.16, green: 0.84, blue: 0.72) : Color.black.opacity(0.22))
+                    .fill(isOn ? Color(red: 0.16, green: 0.80, blue: 0.78) : Color.black.opacity(0.22))
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.8))
                     .frame(width: 50, height: 27)
 
@@ -295,7 +575,7 @@ struct LiquidJellyToggle: View {
                                 LinearGradient(
                                     colors: [
                                         Color.white.opacity(isPressing ? 0.98 : 0.4),
-                                        Color.cyan.opacity(isPressing ? 0.85 : 0.0)
+                                        DockTab.skyBlueAccent.opacity(isPressing ? 0.85 : 0.0)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -339,7 +619,7 @@ struct LiquidJellyToggle: View {
     }
 }
 
-// MARK: - Native Liquid Glass Jelly Slider (Supports Auto-Switching to Metal Optics on Scrub)
+// MARK: - Native Liquid Glass Jelly Slider (Auto-Switches to Metal Optics on Scrub)
 
 struct LiquidJellySlider: View {
     let title: String
@@ -379,7 +659,7 @@ struct LiquidJellySlider: View {
                     Capsule()
                         .fill(
                             LinearGradient(
-                                colors: [Color.cyan, Color(red: 0.45, green: 0.65, blue: 1.0)],
+                                colors: [DockTab.skyBlueAccent, Color(red: 0.45, green: 0.65, blue: 1.0)],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -392,14 +672,14 @@ struct LiquidJellySlider: View {
                             Capsule()
                                 .strokeBorder(
                                     LinearGradient(
-                                        colors: [Color.white, isScrubbing ? Color.cyan : Color.white.opacity(0.5)],
+                                        colors: [Color.white, isScrubbing ? DockTab.skyBlueAccent : Color.white.opacity(0.5)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     ),
                                     lineWidth: isScrubbing ? 1.8 : 0.8
                                 )
                         )
-                        .shadow(color: Color.cyan.opacity(isScrubbing ? 0.42 : 0.0), radius: 6)
+                        .shadow(color: DockTab.skyBlueAccent.opacity(isScrubbing ? 0.42 : 0.0), radius: 6)
                         .shadow(color: Color.black.opacity(0.24), radius: 3, y: 1.5)
                         .frame(width: thumbW, height: thumbH)
                         .scaleEffect(x: stretchX, y: 1.0)

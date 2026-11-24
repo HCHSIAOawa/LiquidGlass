@@ -1,18 +1,19 @@
 import Foundation
 import ActivityKit
 
-// MARK: - ActivityKit Attributes (Zero App Groups — Sideload Safe)
+// MARK: - ActivityKit Attributes (Zero App Groups — Free Apple ID / Impactor Sideload Safe)
 
 struct LiquidGlassActivityAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
+        var modeTitle: String
+        var isBreakMode: Bool
+        var isRunning: Bool
+        var totalSeconds: Int
+        var remainingSeconds: Int
+        var startDate: Date?
+        var endDate: Date?
         var engineName: String
-        var wallpaperTitle: String
-        var wallpaperIndex: Int
-        var trackTitle: String
-        var trackArtist: String
-        var isPlaying: Bool
-        var solarHour: Int
-        var rippleCount: Int
+        var completedSessions: Int
     }
 
     var sessionTitle: String
@@ -24,7 +25,9 @@ extension Notification.Name {
 
 enum LiquidGlassIntentCommandKey {
     static let lastAction = "liquidglass.lastIntentAction"
-    static let lastWallpaperIndex = "liquidglass.lastWallpaperIndex"
-    static let lastIsPlaying = "liquidglass.lastIsPlaying"
-    static let lastRippleCount = "liquidglass.lastRippleCount"
+    static let lastActionTimestamp = "liquidglass.lastIntentTimestamp"
+    static let lastIsRunning = "liquidglass.lastIsRunning"
+    static let lastIsBreakMode = "liquidglass.lastIsBreakMode"
+    static let lastRemainingSeconds = "liquidglass.lastRemainingSeconds"
+    static let lastTotalSeconds = "liquidglass.lastTotalSeconds"
 }

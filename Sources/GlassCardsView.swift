@@ -19,7 +19,7 @@ struct TopStatusHUD: View {
                 HStack(spacing: 5) {
                     Image(systemName: controller.engineMode.icon)
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(controller.engineMode == .nativeAppleGlass ? Color.cyan : Color(red: 1.0, green: 0.76, blue: 0.28))
+                        .foregroundStyle(controller.engineMode == .nativeAppleGlass ? DockTab.skyBlueAccent : Color(red: 1.0, green: 0.76, blue: 0.28))
                     Text(controller.engineMode.title)
                         .font(.system(size: 11.5, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.white)
@@ -31,30 +31,50 @@ struct TopStatusHUD: View {
             }
             .buttonStyle(.plain)
 
-            Button {
-                controller.cycleLensShape()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: controller.lensShape.icon)
-                        .font(.system(size: 10.5, weight: .bold))
-                        .foregroundStyle(Color.cyan)
-                    Text(controller.lensShape.shortTitle)
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.white)
+            if controller.selectedTab == .focusHourglass {
+                Button {
+                    controller.switchPomodoroMode()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: controller.pomodoroMode.icon)
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundStyle(controller.pomodoroMode.accentColor)
+                        Text(controller.pomodoroMode.title)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.white)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6.5)
+                    .background(pillBg, in: Capsule())
+                    .overlay(Capsule().strokeBorder(controller.pomodoroMode.accentColor.opacity(0.35), lineWidth: 0.7))
                 }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6.5)
-                .background(pillBg, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7))
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    controller.cycleLensShape()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: controller.lensShape.icon)
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundStyle(DockTab.skyBlueAccent)
+                        Text(controller.lensShape.shortTitle)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.white)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6.5)
+                    .background(pillBg, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             Spacer(minLength: 4)
 
             PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
                 Image(systemName: "photo.on.rectangle.angled")
                     .font(.system(size: 11.5, weight: .bold))
-                    .foregroundStyle(controller.wallpaper == .customPhoto ? Color.cyan : Color.white)
+                    .foregroundStyle(controller.wallpaper == .customPhoto ? DockTab.skyBlueAccent : Color.white)
                     .frame(width: 30, height: 28)
                     .background(pillBg, in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7))
@@ -98,14 +118,158 @@ struct TopStatusHUD: View {
         if controller.currentFPS >= 110 {
             return Color(red: 0.22, green: 0.96, blue: 0.62)
         } else if controller.currentFPS >= 56 {
-            return Color.cyan
+            return DockTab.skyBlueAccent
         } else {
             return Color.orange
         }
     }
 }
 
-// MARK: - Zone 0: Dual-Droplet Liquid Fusion Lab Pill Bar
+// MARK: - Flagship Tab 0: Liquid Hourglass Pomodoro HUD & Zen Minimalist Controls
+
+struct FocusHourglassOverlay: View {
+    let controller: GlassSceneController
+    let size: CGSize
+    let safeTop: CGFloat
+    let safeBottom: CGFloat
+
+    var body: some View {
+        let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
+        let secondary = controller.tintMode.secondaryTextColor(over: controller.wallpaper)
+        let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
+        let mode = controller.pomodoroMode
+        let hgCenter = controller.hourglassCenter
+        let dialRadius = controller.radialDialRadiusPt
+
+        ZStack {
+            // 1. Subtle Top Digital Time Readout Above Radial Ring (Smoothly scales down & fades in Zen Mode)
+            if !controller.isZenMode {
+                VStack(spacing: 3) {
+                    Text(formatCountdown(controller.displayRemainingSeconds))
+                        .font(.system(size: 36, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(primary)
+                        .contentTransition(.numericText(countsDown: true))
+                        .shadow(color: Color.black.opacity(0.28), radius: 8, y: 2)
+
+                    HStack(spacing: 6) {
+                        Text(controller.isPomodoroRunning ? "\(mode.subtitle) · 滴落計時中" : "滑動外環設定 \(controller.targetMinutes) 分鐘 · 翻轉手機啟動")
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(secondary)
+
+                        if controller.completedPomodoros > 0 {
+                            Text("· 🍅 \(controller.completedPomodoros)")
+                                .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                                .foregroundStyle(mode.accentColor)
+                        }
+                    }
+                }
+                .allowsHitTesting(false)
+                .position(x: size.width * 0.5, y: max(safeTop + 76, hgCenter.y - dialRadius - 42))
+                .transition(.scale(scale: 0.88).combined(with: .opacity))
+            } else {
+                // Ultra-minimal whisper readout in Zen Mode (pure floating hourglass remains focal hero!)
+                Text(formatCountdown(controller.displayRemainingSeconds))
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(primary.opacity(0.45))
+                    .allowsHitTesting(false)
+                    .position(x: size.width * 0.5, y: safeTop + 42)
+                    .transition(.opacity)
+            }
+
+            // 2. Bottom Floating Liquid Glass Action Pill (Start/Pause, Physical Flip/Reset, Mode Switch, Zen Mode)
+            if !controller.isZenMode {
+                let pillW = min(size.width - 44.0, 316.0)
+                let pillY = size.height - safeBottom - 116.0
+
+                HStack(spacing: 8) {
+                    // Mode Toggle: Focus 25m <-> Break 5m
+                    Button {
+                        controller.switchPomodoroMode()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: mode.icon)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(mode.accentColor)
+                            Text(mode.shortTitle)
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(primary)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 38)
+                        .background(subtleFill, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    // Primary Action: Start / Pause
+                    Button {
+                        controller.togglePomodoroStartPause()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: controller.isPomodoroRunning ? "pause.fill" : "play.fill")
+                                .font(.system(size: 12.5, weight: .black))
+                            Text(controller.isPomodoroRunning ? "暫停" : "開始專注")
+                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(Color(red: 0.04, green: 0.08, blue: 0.14))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(
+                            LinearGradient(
+                                colors: [mode.accentColor, mode.secondaryColor.opacity(0.92)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: Capsule()
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    // Flip & Reset Hourglass
+                    Button {
+                        controller.flipAndResetPomodoro(autoStart: false)
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(primary)
+                            .frame(width: 38, height: 38)
+                            .background(subtleFill, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    // Enter Zen Minimalist Immersive Mode
+                    Button {
+                        controller.setZenMode(true)
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(primary)
+                            .frame(width: 38, height: 38)
+                            .background(subtleFill, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 8)
+                .frame(width: pillW, height: 54)
+                .singleLayerGlassCapsule(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75)
+                )
+                .position(x: size.width * 0.5, y: pillY)
+                .transition(.scale(scale: 0.86).combined(with: .opacity))
+            }
+        }
+    }
+
+    private func formatCountdown(_ totalSec: Int) -> String {
+        let clamped = max(0, totalSec)
+        return String(format: "%02d:%02d", clamped / 60, clamped % 60)
+    }
+}
+
+// MARK: - Tab 1: Dual-Droplet Liquid Fusion Lab Pill Bar
 
 struct LensFusionLabPillOverlay: View {
     let controller: GlassSceneController
@@ -156,21 +320,20 @@ struct LensFusionLabPillOverlay: View {
             .foregroundStyle(isActive ? Color.black : primary)
             .frame(maxWidth: .infinity)
             .frame(height: 32)
-            .background(isActive ? Color.cyan : subtleFill, in: Capsule())
+            .background(isActive ? DockTab.skyBlueAccent : subtleFill, in: Capsule())
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Zone 1: Dynamic Music Player & Synth Beat Shockwave Card
+// MARK: - Tab 2: Dynamic Music Player & Synth Beat Shockwave Card (Velocity-Preserving Mid-Flight Grab!)
 
 struct MusicPlayerCardOverlay: View {
     let controller: GlassSceneController
     let cardWidth: CGFloat
     let baseCenter: CGPoint
 
-    @State private var committedOffset: CGSize = .zero
-    @State private var activeDrag: CGSize = .zero
+    @State private var springState = VelocityCardSpringState()
     @State private var lastScrubBucket: Int = -1
     @State private var activePadBounce: Int = -1
 
@@ -180,10 +343,7 @@ struct MusicPlayerCardOverlay: View {
         let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
         let prominentFill = controller.tintMode.prominentFillColor(over: controller.wallpaper)
         let track = controller.currentTrack
-        let totalOffset = CGSize(
-            width: committedOffset.width + activeDrag.width,
-            height: committedOffset.height + activeDrag.height
-        )
+        let liveOffset = springState.offset
 
         VStack(spacing: 10) {
             HStack(spacing: 11) {
@@ -283,8 +443,8 @@ struct MusicPlayerCardOverlay: View {
                     let isBouncing = (activePadBounce == pad.id)
                     Button {
                         withAnimation(.spring(response: 0.24, dampingFraction: 0.45)) { activePadBounce = pad.id }
-                        let padX = baseCenter.x + totalOffset.width + CGFloat(pad.id - 1) * 72.0 - 36.0
-                        controller.triggerBeatPad(index: pad.id, screenPoint: CGPoint(x: padX, y: baseCenter.y + totalOffset.height + 52))
+                        let padX = baseCenter.x + liveOffset.width + CGFloat(pad.id - 1) * 72.0 - 36.0
+                        controller.triggerBeatPad(index: pad.id, screenPoint: CGPoint(x: padX, y: baseCenter.y + liveOffset.height + 52))
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                             withAnimation(.spring(response: 0.28, dampingFraction: 0.6)) {
                                 if activePadBounce == pad.id { activePadBounce = -1 }
@@ -321,22 +481,23 @@ struct MusicPlayerCardOverlay: View {
         .frame(width: cardWidth, height: 176)
         .singleLayerGlassPlate(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode, cornerRadius: 30)
         .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .position(x: baseCenter.x + totalOffset.width, y: baseCenter.y + totalOffset.height)
+        .position(x: baseCenter.x + liveOffset.width, y: baseCenter.y + liveOffset.height)
         .gesture(
-            DragGesture(minimumDistance: 8)
+            DragGesture(minimumDistance: 6)
                 .onChanged { val in
-                    activeDrag = val.translation
-                    controller.setCardLiveOffset(
-                        tab: .musicBeat,
-                        offset: CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
-                    )
+                    springState.onDragChanged(translation: val.translation, velocity: val.velocity) { newOffset in
+                        controller.setCardSpringTarget(tab: .musicBeat, offset: newOffset)
+                    }
                 }
                 .onEnded { val in
-                    committedOffset = CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
-                    activeDrag = .zero
-                    controller.setCardLiveOffset(tab: .musicBeat, offset: committedOffset)
+                    springState.onDragEnded(velocity: val.velocity, bounds: CGSize(width: 24, height: 220)) { newOffset, rv in
+                        controller.setCardSpringTarget(tab: .musicBeat, offset: newOffset, releaseVelocity: rv)
+                    }
                 }
         )
+        .onDisappear {
+            springState.stopDisplayLink()
+        }
     }
 
     private func formatTime(_ seconds: Double) -> String {
@@ -364,27 +525,23 @@ struct AudioSpectrumBarsView: View {
     }
 }
 
-// MARK: - Zone 2: Liquid Control Hub (With Global System Dynamic Island Toggle)
+// MARK: - Tab 3: Liquid Control Hub (Includes Droplet Haptic Resonance, Phone Flip & Live Activity Toggles)
 
 struct MiniControlCenterOverlay: View {
     @Bindable var controller: GlassSceneController
     let cardWidth: CGFloat
     let baseCenter: CGPoint
 
-    @State private var committedOffset: CGSize = .zero
-    @State private var activeDrag: CGSize = .zero
+    @State private var springState = VelocityCardSpringState()
     @State private var lastBrightnessBucket: Int = -1
 
     var body: some View {
         let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
         let secondary = controller.tintMode.secondaryTextColor(over: controller.wallpaper)
         let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
-        let totalOffset = CGSize(
-            width: committedOffset.width + activeDrag.width,
-            height: committedOffset.height + activeDrag.height
-        )
+        let liveOffset = springState.offset
 
-        VStack(spacing: 9) {
+        VStack(spacing: 8) {
             HStack {
                 Label("液態控制中樞", systemImage: "switch.2")
                     .font(.system(size: 13.5, weight: .bold, design: .rounded))
@@ -423,14 +580,15 @@ struct MiniControlCenterOverlay: View {
                 }
 
                 controlTile(
-                    icon: "arrow.down.circle.fill",
-                    title: "重力場",
-                    isActive: controller.gravityModeEnabled,
-                    activeColor: Color(red: 0.36, green: 0.72, blue: 1.0),
+                    icon: "iphone.gen3.radiowaves.left.and.right",
+                    title: "翻轉啟動",
+                    isActive: controller.flipToStartEnabled,
+                    activeColor: DockTab.skyBlueAccent,
                     primary: primary,
                     subtleFill: subtleFill
                 ) {
-                    controller.gravityModeEnabled.toggle()
+                    controller.flipToStartEnabled.toggle()
+                    HapticsManager.shared.selection()
                 }
 
                 controlTile(
@@ -447,15 +605,15 @@ struct MiniControlCenterOverlay: View {
 
             VStack(spacing: 5) {
                 LiquidJellyToggle(
-                    title: "全局系統動態島 (Live Activity)",
-                    icon: "capsule.portrait.tophalf.filled",
-                    isOn: $controller.liveActivityEnabled,
+                    title: "沙漏水滴共鳴微震 (Droplet Haptics)",
+                    icon: "drop.transmission",
+                    isOn: $controller.dropletHapticsEnabled,
                     primaryColor: primary
                 )
                 LiquidJellyToggle(
-                    title: "雙水滴與挖孔黑洞融合",
-                    icon: "drop.degreesign.fill",
-                    isOn: $controller.metaballFusionEnabled,
+                    title: "全局系統動態島 (Live Activity)",
+                    icon: "capsule.portrait.tophalf.filled",
+                    isOn: $controller.liveActivityEnabled,
                     primaryColor: primary
                 )
                 LiquidJellyToggle(
@@ -508,25 +666,26 @@ struct MiniControlCenterOverlay: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
-        .frame(width: cardWidth, height: 252)
+        .frame(width: cardWidth, height: 268)
         .singleLayerGlassPlate(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode, cornerRadius: 30)
         .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .position(x: baseCenter.x + totalOffset.width, y: baseCenter.y + totalOffset.height)
+        .position(x: baseCenter.x + liveOffset.width, y: baseCenter.y + liveOffset.height)
         .gesture(
-            DragGesture(minimumDistance: 8)
+            DragGesture(minimumDistance: 6)
                 .onChanged { val in
-                    activeDrag = val.translation
-                    controller.setCardLiveOffset(
-                        tab: .controlHub,
-                        offset: CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
-                    )
+                    springState.onDragChanged(translation: val.translation, velocity: val.velocity) { newOffset in
+                        controller.setCardSpringTarget(tab: .controlHub, offset: newOffset)
+                    }
                 }
                 .onEnded { val in
-                    committedOffset = CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
-                    activeDrag = .zero
-                    controller.setCardLiveOffset(tab: .controlHub, offset: committedOffset)
+                    springState.onDragEnded(velocity: val.velocity, bounds: CGSize(width: 24, height: 210)) { newOffset, rv in
+                        controller.setCardSpringTarget(tab: .controlHub, offset: newOffset, releaseVelocity: rv)
+                    }
                 }
         )
+        .onDisappear {
+            springState.stopDisplayLink()
+        }
     }
 
     private func controlTile(
@@ -559,120 +718,7 @@ struct MiniControlCenterOverlay: View {
     }
 }
 
-// MARK: - Zone 3: Spatial Weather & 24h Solar Arc Liquid Glass Card
-
-struct WeatherSolarCardOverlay: View {
-    @Bindable var controller: GlassSceneController
-    let cardWidth: CGFloat
-    let baseCenter: CGPoint
-
-    @State private var committedOffset: CGSize = .zero
-    @State private var activeDrag: CGSize = .zero
-
-    var body: some View {
-        let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
-        let secondary = controller.tintMode.secondaryTextColor(over: controller.wallpaper)
-        let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
-        let cond = controller.weatherCondition
-        let tempOffset = Int((sin((controller.solarHour - 9.0) / 24.0 * 2.0 * .pi) * 4.0).rounded())
-        let displayTemp = cond.baseTemp + tempOffset
-        let totalOffset = CGSize(
-            width: committedOffset.width + activeDrag.width,
-            height: committedOffset.height + activeDrag.height
-        )
-
-        VStack(spacing: 11) {
-            HStack(alignment: .center) {
-                HStack(spacing: 10) {
-                    Image(systemName: isNightHour ? "moon.stars.fill" : cond.icon)
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(isNightHour ? Color.cyan : Color(red: 1.0, green: 0.80, blue: 0.28))
-                        .frame(width: 36)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(displayTemp)° · \(cond.title)")
-                            .font(.system(size: 18, weight: .black, design: .rounded))
-                            .foregroundStyle(primary)
-                        Text("\(cond.citySubtitle) · 濕度 \(cond.humidity)")
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(secondary)
-                    }
-                }
-
-                Spacer()
-
-                CardPinButton(isPinned: controller.pinnedWeather, primary: primary, subtleFill: subtleFill) {
-                    controller.togglePin(for: .weatherSolar)
-                }
-            }
-
-            HStack(spacing: 6) {
-                ForEach(WeatherCondition.allCases) { item in
-                    let selected = (controller.weatherCondition == item)
-                    Button {
-                        controller.weatherCondition = item
-                        controller.triggerRipple(at: CGPoint(x: baseCenter.x + totalOffset.width, y: baseCenter.y + totalOffset.height), strength: 0.70)
-                        HapticsManager.shared.selection()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: item.icon)
-                                .font(.system(size: 11, weight: .bold))
-                            Text(item.title)
-                                .font(.system(size: 11, weight: .bold, design: .rounded))
-                        }
-                        .foregroundStyle(selected ? Color.black : primary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 34)
-                        .background(
-                            selected ? Color.white : subtleFill,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            LiquidJellySlider(
-                title: isNightHour ? "星夜時光" : "日照軌跡",
-                value: $controller.solarHour,
-                range: 0.0...23.9,
-                format: "%02.0f:00",
-                primaryColor: primary,
-                secondaryColor: secondary
-            )
-            .onChange(of: Int(controller.solarHour)) { _, _ in
-                controller.syncLiveActivityNow()
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(width: cardWidth, height: 196)
-        .singleLayerGlassPlate(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode, cornerRadius: 30)
-        .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .position(x: baseCenter.x + totalOffset.width, y: baseCenter.y + totalOffset.height)
-        .gesture(
-            DragGesture(minimumDistance: 8)
-                .onChanged { val in
-                    activeDrag = val.translation
-                    controller.setCardLiveOffset(
-                        tab: .weatherSolar,
-                        offset: CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
-                    )
-                }
-                .onEnded { val in
-                    committedOffset = CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
-                    activeDrag = .zero
-                    controller.setCardLiveOffset(tab: .weatherSolar, offset: committedOffset)
-                }
-        )
-    }
-
-    private var isNightHour: Bool {
-        controller.solarHour < 5.8 || controller.solarHour > 19.2
-    }
-}
-
-// MARK: - Zone 4: Optical Studio + iPhone 18 Pro Hardware Cutout Precision Calibration
+// MARK: - Tab 4: Optical Studio + iPhone 18 Pro Hardware Cutout Precision Calibration
 
 struct StudioDrawerOverlay: View {
     @Bindable var controller: GlassSceneController
@@ -702,7 +748,6 @@ struct StudioDrawerOverlay: View {
 
                 Spacer(minLength: 4)
 
-                // Toggle hidden/advanced iPhone 18 Pro hardware cutout pixel-calibration sliders
                 Button {
                     showCutoutCalibration.toggle()
                     HapticsManager.shared.selection()
@@ -716,7 +761,7 @@ struct StudioDrawerOverlay: View {
                     .foregroundStyle(showCutoutCalibration ? Color.black : primary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(showCutoutCalibration ? Color.cyan : pillBg, in: Capsule())
+                    .background(showCutoutCalibration ? DockTab.skyBlueAccent : pillBg, in: Capsule())
                 }
                 .buttonStyle(.plain)
 
@@ -729,7 +774,7 @@ struct StudioDrawerOverlay: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
                         .background(
-                            controller.engineMode == .nativeAppleGlass ? Color.white : Color.cyan,
+                            controller.engineMode == .nativeAppleGlass ? Color.white : DockTab.skyBlueAccent,
                             in: Capsule()
                         )
                 }
@@ -737,7 +782,7 @@ struct StudioDrawerOverlay: View {
 
                 Button {
                     HapticsManager.shared.tapLight()
-                    controller.selectedTab = .lensLab
+                    controller.selectedTab = .focusHourglass
                 } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .bold))
@@ -781,7 +826,7 @@ struct StudioDrawerOverlay: View {
                     .foregroundStyle(selected ? Color.black : primary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(selected ? Color.cyan : pillBg, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .background(selected ? DockTab.skyBlueAccent : pillBg, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -799,7 +844,7 @@ struct StudioDrawerOverlay: View {
                             .foregroundStyle(isSelected ? Color.black : primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)
-                            .background(isSelected ? Color(red: 0.56, green: 0.94, blue: 1.0) : pillBg, in: Capsule())
+                            .background(isSelected ? Color(red: 0.56, green: 0.90, blue: 1.0) : pillBg, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -813,7 +858,7 @@ struct StudioDrawerOverlay: View {
                         .foregroundStyle(controller.showFPS ? Color.black : primary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
-                        .background(controller.showFPS ? Color.cyan : pillBg, in: Capsule())
+                        .background(controller.showFPS ? DockTab.skyBlueAccent : pillBg, in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -857,13 +902,13 @@ struct StudioDrawerOverlay: View {
                             HapticsManager.shared.selection()
                         }
                         .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.cyan)
+                        .foregroundStyle(DockTab.skyBlueAccent)
                         .buttonStyle(.plain)
                     }
                     .padding(.top, 2)
                 }
             } else {
-                // 4 Optical Sliders — Scrubbing ANY slider auto-activates Custom Metal Optics for instant dispersion!
+                // 4 Optical Sliders — Scrubbing ANY slider auto-activates Custom Metal Optics!
                 VStack(spacing: 6) {
                     LiquidJellySlider(
                         title: "折射強度",
@@ -923,7 +968,7 @@ private struct CardPinButton: View {
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(isPinned ? Color.black : primary.opacity(0.75))
                 .frame(width: 26, height: 26)
-                .background(isPinned ? Color.cyan : subtleFill, in: Circle())
+                .background(isPinned ? DockTab.skyBlueAccent : subtleFill, in: Circle())
         }
         .buttonStyle(.plain)
     }

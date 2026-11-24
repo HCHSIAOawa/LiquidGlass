@@ -4,7 +4,7 @@ import Metal
 import MetalKit
 import QuartzCore
 
-// MARK: - Interactive 120Hz MTKView (Handles Droplet, Pinch & Cutout Touches with Zero SwiftUI State Overhead)
+// MARK: - Interactive 120Hz MTKView (Handles Hourglass Dial, Droplets, Pinch & Cutout Touches with Zero SwiftUI Overhead)
 
 @MainActor
 final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
@@ -13,6 +13,8 @@ final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
     private enum ActivePanTarget {
         case none
         case islandCutout
+        case radialTimeDial
+        case hourglassBody
         case companionDroplet
         case heroDroplet
         case waterCanvas
@@ -65,6 +67,12 @@ final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
         case .began:
             if ctrl.hitTestHardwareIsland(at: loc) {
                 activePanTarget = .islandCutout
+            } else if ctrl.hitTestRadialTimeDial(at: loc) {
+                activePanTarget = .radialTimeDial
+                ctrl.beginDialScrub(at: loc)
+            } else if ctrl.hitTestHourglassBody(at: loc) {
+                activePanTarget = .hourglassBody
+                ctrl.beginHourglassSloshTouch(at: loc)
             } else if ctrl.hitTestCompanionDroplet(at: loc) {
                 activePanTarget = .companionDroplet
                 ctrl.beginCompanionDrag()
@@ -73,7 +81,7 @@ final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
                 ctrl.beginLensDrag()
             } else {
                 activePanTarget = .waterCanvas
-                ctrl.triggerRipple(at: loc, strength: 0.65)
+                ctrl.triggerRipple(at: loc, strength: 0.62)
             }
 
         case .changed:
@@ -82,15 +90,27 @@ final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
                 if trans.y > 0 {
                     ctrl.updateIslandPullDown(translationY: trans.y)
                 }
+            case .radialTimeDial:
+                ctrl.updateDialScrub(at: loc, velocity: CGSize(width: vel.x, height: vel.y))
+            case .hourglassBody:
+                ctrl.updateHourglassSloshTouch(at: loc, velocity: CGSize(width: vel.x, height: vel.y))
             case .companionDroplet:
-                ctrl.updateCompanionDrag(translation: CGSize(width: trans.x, height: trans.y), velocity: CGSize(width: vel.x, height: vel.y), location: loc)
+                ctrl.updateCompanionDrag(
+                    translation: CGSize(width: trans.x, height: trans.y),
+                    velocity: CGSize(width: vel.x, height: vel.y),
+                    location: loc
+                )
             case .heroDroplet:
-                ctrl.updateLensDrag(translation: CGSize(width: trans.x, height: trans.y), velocity: CGSize(width: vel.x, height: vel.y), location: loc)
+                ctrl.updateLensDrag(
+                    translation: CGSize(width: trans.x, height: trans.y),
+                    velocity: CGSize(width: vel.x, height: vel.y),
+                    location: loc
+                )
             case .waterCanvas:
                 let now = CACurrentMediaTime()
                 if now - lastWaterRippleTime > 0.09 {
                     lastWaterRippleTime = now
-                    ctrl.triggerRipple(at: loc, strength: 0.45)
+                    ctrl.triggerRipple(at: loc, strength: 0.42)
                 }
             case .none:
                 break
@@ -100,6 +120,10 @@ final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
             switch activePanTarget {
             case .islandCutout:
                 ctrl.endIslandPullDown()
+            case .radialTimeDial:
+                ctrl.endDialScrub(at: loc, velocity: CGSize(width: vel.x, height: vel.y))
+            case .hourglassBody:
+                ctrl.endHourglassSloshTouch(velocity: CGSize(width: vel.x, height: vel.y))
             case .companionDroplet:
                 ctrl.endCompanionDrag(velocity: CGSize(width: vel.x, height: vel.y))
             case .heroDroplet:
@@ -128,7 +152,16 @@ final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
 
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, let ctrl = sceneController else { return }
-        ctrl.cycleLensShape()
+        let loc = gesture.location(in: self)
+        if ctrl.selectedTab == .focusHourglass {
+            if ctrl.hitTestHourglassBody(at: loc) {
+                ctrl.handleHourglassDoubleTap()
+            } else {
+                ctrl.toggleZenMode()
+            }
+        } else {
+            ctrl.cycleLensShape()
+        }
     }
 
     @objc private func handleSingleTap(_ gesture: UITapGestureRecognizer) {
@@ -137,11 +170,7 @@ final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
         if ctrl.hitTestHardwareIsland(at: loc) {
             ctrl.handleHardwareIslandTap()
         } else {
-            ctrl.triggerRipple(at: loc, strength: 0.78)
-            HapticsManager.shared.tapSoft(intensity: 0.38)
-            if ctrl.selectedTab == .opticalStudio {
-                ctrl.selectedTab = .lensLab
-            }
+            ctrl.handleCanvasSingleTap(at: loc)
         }
     }
 }
@@ -165,7 +194,7 @@ struct MetalLiquidGlassView: UIViewRepresentable {
         mtkView.enableSetNeedsDisplay = false
         mtkView.framebufferOnly = true
         mtkView.colorPixelFormat = .bgra8Unorm
-        mtkView.clearColor = MTLClearColor(red: 0.025, green: 0.042, blue: 0.105, alpha: 1.0)
+        mtkView.clearColor = MTLClearColor(red: 0.020, green: 0.038, blue: 0.098, alpha: 1.0)
         let displayScale = UITraitCollection.current.displayScale
         mtkView.contentScaleFactor = displayScale > 0 ? min(displayScale, 3.0) : 3.0
         mtkView.isOpaque = true
@@ -181,7 +210,7 @@ struct MetalLiquidGlassView: UIViewRepresentable {
     }
 }
 
-// MARK: - Single-Pass Pure GPU Metal Renderer
+// MARK: - Single-Pass Pure GPU Metal Renderer (120Hz ProMotion Locked)
 
 @MainActor
 final class MetalRenderer: NSObject, MTKViewDelegate {
@@ -262,15 +291,15 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             roundedFont = baseFont
         }
 
-        let evenPhrase = "LIQUID GLASS · DISPERSION · METAL 120FPS · "
+        let evenPhrase = "LIQUID HOURGLASS · CAUSTICS · 120FPS · "
         let oddPhrase  = "PRO MOTION · REFRACTION · PRISM OPTICS · "
 
         for row in 0..<rowCount {
             let isEven = (row % 2 == 0)
             let text = isEven ? evenPhrase : oddPhrase
             let color = isEven
-                ? UIColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.90)
-                : UIColor(red: 0.42, green: 0.92, blue: 1.0, alpha: 0.86)
+                ? UIColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.88)
+                : UIColor(red: 0.38, green: 0.90, blue: 1.0, alpha: 0.84)
 
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: roundedFont,
@@ -385,7 +414,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             return
         }
 
-        // Pure GPU/Controller float update — NEVER mutates SwiftUI @State per frame!
+        // Pure 120Hz GPU/Controller float integration — NEVER mutates SwiftUI @State per frame!
         controller.stepFrame(now: CACurrentMediaTime(), drawablePointSize: view.bounds.size)
         uploadCustomPhotoIfNeeded(device: device)
 
@@ -408,6 +437,12 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
                 encoder.setFragmentBytes(base, length: rawPtr.count, index: 1)
             }
         }
+
+        encoder.setFragmentBytes(
+            &controller.hourglassUniforms,
+            length: MemoryLayout<HourglassUniforms>.stride,
+            index: 2
+        )
 
         encoder.setFragmentTexture(textTexture ?? fallbackTexture, index: 0)
         encoder.setFragmentTexture(photoTexture ?? fallbackTexture, index: 1)

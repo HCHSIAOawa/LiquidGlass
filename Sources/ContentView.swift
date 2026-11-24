@@ -19,28 +19,39 @@ struct ContentView: View {
                 let dockCenterY = controller.dockCenterY(for: size.height, safeBottom: safeBottom)
 
                 ZStack(alignment: .topLeading) {
-                    // 1. Full-Screen 120Hz InteractiveMTKView (Pure GPU Rendering + Direct UIKit Droplet/Cutout Touches)
+                    // 1. Full-Screen 120Hz InteractiveMTKView (Pure GPU Hourglass, Droplets & Cutout Fusion)
                     MetalLiquidGlassView(controller: controller)
                         .frame(width: size.width, height: size.height)
 
-                    // 2. Zone 0: Dual-Droplet Fusion Lab Pill
+                    // 2. Flagship Tab 0: Liquid Hourglass Pomodoro HUD & Zen Minimalist Controls
+                    if controller.isFocusTabActive {
+                        FocusHourglassOverlay(
+                            controller: controller,
+                            size: size,
+                            safeTop: safeTop,
+                            safeBottom: safeBottom
+                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                    }
+
+                    // 3. Tab 1: Dual-Droplet Fusion Lab Pill
                     if controller.isLensLabBarVisible {
                         LensFusionLabPillOverlay(controller: controller, pillWidth: labPillWidth)
-                            .position(x: size.width * 0.5, y: safeTop + 78)
+                            .position(x: size.width * 0.5, y: safeTop + 76)
                             .transition(.opacity.combined(with: .scale(scale: 0.92)))
                     }
 
-                    // 3. Zone 1: Dynamic Music & Synth Beat Card
+                    // 4. Tab 2: Dynamic Music & Synth Beat Card
                     if controller.isMusicVisible {
                         MusicPlayerCardOverlay(
                             controller: controller,
                             cardWidth: cardWidth,
-                            baseCenter: CGPoint(x: size.width * 0.5, y: safeTop + 152)
+                            baseCenter: CGPoint(x: size.width * 0.5, y: safeTop + 150)
                         )
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                     }
 
-                    // 4. Zone 2: Liquid Control Hub Card
+                    // 5. Tab 3: Liquid Control Hub Card
                     if controller.isControlVisible {
                         MiniControlCenterOverlay(
                             controller: controller,
@@ -50,17 +61,7 @@ struct ContentView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                     }
 
-                    // 5. Zone 3: Spatial Weather & Solar Arc Card
-                    if controller.isWeatherVisible {
-                        WeatherSolarCardOverlay(
-                            controller: controller,
-                            cardWidth: cardWidth,
-                            baseCenter: CGPoint(x: size.width * 0.5, y: safeTop + 168)
-                        )
-                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                    }
-
-                    // 6. Zone 4: Optical & Hardware Cutout Calibration Studio Drawer
+                    // 6. Tab 4: Optical & Hardware Cutout Calibration Studio Drawer
                     if controller.isStudioVisible {
                         let drawerH: CGFloat = 388
                         let drawerBaseY = size.height - safeBottom - 80 - drawerH * 0.5
@@ -74,22 +75,35 @@ struct ContentView: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    // 7. Strict Single-Axis Horizontal Liquid Dock
-                    NativeLiquidDockOverlay(
-                        controller: controller,
-                        screenWidth: size.width
-                    )
-                    .position(x: size.width * 0.5, y: dockCenterY)
+                    // 7. Apple Native Two-Part Single-Axis Bottom Liquid Dock (Fluidly Retreats in Zen Mode!)
+                    if !controller.isZenMode {
+                        NativeLiquidDockOverlay(
+                            controller: controller,
+                            screenWidth: size.width
+                        )
+                        .position(x: size.width * 0.5, y: dockCenterY)
+                        .transition(
+                            .asymmetric(
+                                insertion: .scale(scale: 0.88).combined(with: .opacity),
+                                removal: .scale(scale: 0.86).combined(with: .opacity)
+                            )
+                        )
+                    }
 
-                    // 8. Clean Top HUD Below Safe Area (Never Obstructs Time, Battery, or Hardware Cutout!)
-                    TopStatusHUD(
-                        controller: controller,
-                        selectedPhotoItem: $selectedPhotoItem
-                    )
-                    .padding(.horizontal, 14)
-                    .padding(.top, safeTop + 6)
+                    // 8. Clean Top Status HUD (Smoothly Retreats in Zen Mode; Never Obstructs Cutout!)
+                    if !controller.isZenMode {
+                        TopStatusHUD(
+                            controller: controller,
+                            selectedPhotoItem: $selectedPhotoItem
+                        )
+                        .padding(.horizontal, 14)
+                        .padding(.top, safeTop + 6)
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                    }
                 }
-                .animation(.spring(response: 0.32, dampingFraction: 0.78), value: controller.selectedTab)
+                .animation(.spring(response: 0.34, dampingFraction: 0.76), value: controller.selectedTab)
+                .animation(.spring(response: 0.42, dampingFraction: 0.78), value: controller.isZenMode)
+                .animation(.spring(response: 0.36, dampingFraction: 0.80), value: controller.pomodoroMode)
                 .frame(width: size.width, height: size.height)
                 .onAppear {
                     controller.updateGeometry(size: size, safeTop: safeTop, safeBottom: safeBottom)
@@ -101,9 +115,14 @@ struct ContentView: View {
             .ignoresSafeArea()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .inactive || newPhase == .background {
-                // Immediately push latest state to Global System Dynamic Island as user leaves app!
+            switch newPhase {
+            case .inactive, .background:
+                // Immediately hand off accurate countdown timer to System Native Dynamic Island!
                 controller.syncLiveActivityNow()
+            case .active:
+                controller.reconcileFromLiveActivityOnForeground()
+            @unknown default:
+                break
             }
         }
         .onOpenURL { url in

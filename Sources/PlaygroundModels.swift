@@ -1,6 +1,54 @@
 import SwiftUI
 import simd
 
+// MARK: - Velocity-Preserving 120Hz Spring Solvers (Fixed dt = 1/120s, Zero Gesture Discontinuity)
+
+struct Spring1D: Sendable {
+    var pos: Float
+    var vel: Float
+
+    init(pos: Float = 0.0, vel: Float = 0.0) {
+        self.pos = pos
+        self.vel = vel
+    }
+
+    mutating func step(target: Float, omega: Float, zeta: Float, dt: Float = 1.0 / 120.0) {
+        let force = -omega * omega * (pos - target) - 2.0 * zeta * omega * vel
+        vel += force * dt
+        pos += vel * dt
+    }
+
+    mutating func reset(to value: Float, preserveVelocity: Bool = true) {
+        pos = value
+        if !preserveVelocity {
+            vel = 0.0
+        }
+    }
+}
+
+struct Spring2D: Sendable {
+    var pos: SIMD2<Float>
+    var vel: SIMD2<Float>
+
+    init(pos: SIMD2<Float> = .zero, vel: SIMD2<Float> = .zero) {
+        self.pos = pos
+        self.vel = vel
+    }
+
+    mutating func step(target: SIMD2<Float>, omega: Float, zeta: Float, dt: Float = 1.0 / 120.0) {
+        let force = -omega * omega * (pos - target) - 2.0 * zeta * omega * vel
+        vel += force * dt
+        pos += vel * dt
+    }
+
+    mutating func reset(to value: SIMD2<Float>, preserveVelocity: Bool = true) {
+        pos = value
+        if !preserveVelocity {
+            vel = .zero
+        }
+    }
+}
+
 // MARK: - Shared GPU Uniforms (100% 16-Byte SIMD4 Aligned & Sendable)
 
 /// Global scene uniforms passed to `liquidGlassFragment` at `[[buffer(0)]]`.
@@ -18,7 +66,7 @@ struct SceneUniforms: Sendable {
     var layerFlags: SIMD4<Float> = .zero
     /// x: rippleCenter.x (pt), y: rippleCenter.y (pt), z: rippleRadius (pt), w: rippleStrength (0..1)
     var rippleParams: SIMD4<Float> = .zero
-    /// x: solarWarmth (-1..1), y: globalRimBoost (1..1.6), z: fusionSmoothness (pt), w: islandHalfHeight (pt)
+    /// x: atmosphereWarmth (-1..1), y: globalRimBoost (1..1.6), z: fusionSmoothness (pt), w: islandHalfHeight (pt)
     var atmosphereParams: SIMD4<Float> = .zero
     /// x: islandCenterX (pt), y: islandCenterY (pt), z: islandHalfWidth (pt), w: islandPullStretch (pt)
     var islandParams: SIMD4<Float> = .zero
@@ -33,8 +81,91 @@ struct GlassElementUniform: Sendable {
     var shapeAndTransform: SIMD4<Float> = .zero
     /// x: opacity (0..1), y: refractionScale, z: frostBoost, w: shadowElevation
     var styleParams: SIMD4<Float> = .zero
-    /// xyz: accentRGB, w: accentStrength (-1.0 = Dual-Droplet Fusion leader)
+    /// xyz: accentRGB, w: accentStrength (-1.0 = Dual-Droplet Fusion leader, -2.0 = Island-magnetic droplet)
     var tintOverride: SIMD4<Float> = .zero
+}
+
+/// Dual-chamber Liquid Hourglass + Radial Optical Time Dial uniforms passed at `[[buffer(2)]]`.
+/// 8 x SIMD4<Float> = 128 bytes exact layout matching `Shaders.metal`.
+struct HourglassUniforms: Sendable {
+    /// x: centerX (pt), y: centerY (pt), z: halfWidth (pt), w: halfHeight (pt)
+    var centerAndSize: SIMD4<Float> = .zero
+    /// x: visibility (0..1), y: flipAngleRad, z: upperFill (0..1), w: lowerFill (0..1)
+    var morphAndFill: SIMD4<Float> = .zero
+    /// x: pinchPhase (0..1), y: dropLocalY (pt), z: dropRadius (pt), w: filamentThickness (pt)
+    var dropletParams: SIMD4<Float> = .zero
+    /// x: impactWavePhase (0..1), y: impactStrength (0..1), z: causticBloom (0..1), w: modeBlend (0=Focus, 1=Rest)
+    var impactAndAtmosphere: SIMD4<Float> = .zero
+    /// x: dialVisibility (0..1), y: dialRadiusPt, z: progressAngleRad (0..2pi), w: dialDragGlow (0..1)
+    var dialRingParams: SIMD4<Float> = .zero
+    /// x: knobCenterX (pt), y: knobCenterY (pt), z: knobRadiusPt, w: knobTangentAngleRad
+    var dialLensParams: SIMD4<Float> = .zero
+    /// x: gravityTiltX (-1..1), y: gravityTiltY (-1..1), z: zenBreathGlow (0..1), w: knobStretch (0.8..1.4)
+    var gravityAndZen: SIMD4<Float> = .zero
+    /// x: streamActive (0..1), y: dropStretch (1..1.5), z: satelliteLocalY (pt), w: satelliteRadius (pt)
+    var neckAndStream: SIMD4<Float> = .zero
+}
+
+// MARK: - Pomodoro Focus / Break Mode
+
+enum PomodoroMode: Int, CaseIterable, Identifiable, Sendable {
+    case focus = 0
+    case rest = 1
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .focus: return "專注模式"
+        case .rest: return "晨曦休息"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .focus: return "專注"
+        case .rest: return "休息"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .focus: return "深邃極光稜鏡"
+        case .rest: return "晨曦暖金森綠"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .focus: return "hourglass"
+        case .rest: return "leaf.fill"
+        }
+    }
+
+    var defaultMinutes: Int {
+        switch self {
+        case .focus: return 25
+        case .rest: return 5
+        }
+    }
+
+    var accentColor: Color {
+        switch self {
+        case .focus: return Color(red: 0.220, green: 0.741, blue: 0.973) // #38BDF8 Sky Aurora
+        case .rest: return Color(red: 0.204, green: 0.827, blue: 0.600)  // #34D399 Emerald Dawn
+        }
+    }
+
+    var secondaryColor: Color {
+        switch self {
+        case .focus: return Color(red: 0.48, green: 0.52, blue: 1.0)
+        case .rest: return Color(red: 0.98, green: 0.75, blue: 0.24)
+        }
+    }
+
+    func toggled() -> PomodoroMode {
+        self == .focus ? .rest : .focus
+    }
 }
 
 // MARK: - Dual Rendering Engine Mode
@@ -71,36 +202,48 @@ enum GlassEngineMode: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-// MARK: - Bottom Single-Axis Liquid Glass Dock Tabs
+// MARK: - Apple Native Two-Part Bottom Liquid Glass Dock Tabs
+// Left Main Capsule (78% width): 專注, 探索, 音樂, 控制 + 10pt gap + Right Independent Glass Orb: 工坊
 
 enum DockTab: Int, CaseIterable, Identifiable, Sendable {
-    case lensLab = 0
-    case musicBeat = 1
-    case controlHub = 2
-    case weatherSolar = 3
+    case focusHourglass = 0
+    case lensLab = 1
+    case musicBeat = 2
+    case controlHub = 3
     case opticalStudio = 4
 
     var id: Int { rawValue }
 
+    static var mainCapsuleTabs: [DockTab] {
+        [.focusHourglass, .lensLab, .musicBeat, .controlHub]
+    }
+
+    var isMainCapsuleTab: Bool {
+        self != .opticalStudio
+    }
+
     var title: String {
         switch self {
+        case .focusHourglass: return "專注"
         case .lensLab: return "探索"
         case .musicBeat: return "音樂"
         case .controlHub: return "控制"
-        case .weatherSolar: return "天氣"
         case .opticalStudio: return "工坊"
         }
     }
 
     var icon: String {
         switch self {
+        case .focusHourglass: return "hourglass"
         case .lensLab: return "drop.halffull"
         case .musicBeat: return "waveform"
         case .controlHub: return "switch.2"
-        case .weatherSolar: return "cloud.sun.fill"
         case .opticalStudio: return "slider.horizontal.3"
         }
     }
+
+    /// Signature #38BDF8 Bright Sky Blue selected tint at rest
+    static let skyBlueAccent = Color(red: 0.2196, green: 0.7412, blue: 0.9725)
 }
 
 // MARK: - Presets & Domain Models
@@ -265,69 +408,6 @@ enum LensShapeMode: Int, CaseIterable, Identifiable, Sendable {
         let all = Self.allCases
         let idx = (rawValue + 1) % all.count
         return all[idx]
-    }
-}
-
-enum WeatherCondition: Int, CaseIterable, Identifiable, Sendable {
-    case sunny = 0
-    case rain = 1
-    case snow = 2
-    case neonMist = 3
-
-    var id: Int { rawValue }
-
-    var title: String {
-        switch self {
-        case .sunny: return "晴朗"
-        case .rain: return "陣雨"
-        case .snow: return "極光雪"
-        case .neonMist: return "霓虹霧"
-        }
-    }
-
-    var citySubtitle: String {
-        switch self {
-        case .sunny: return "台北 · 能見度極佳"
-        case .rain: return "東京 · 液態雨滴折射"
-        case .snow: return "雷克雅維克 · 冰晶色散"
-        case .neonMist: return "舊金山 · 柔霧漫射"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .sunny: return "sun.max.fill"
-        case .rain: return "cloud.rain.fill"
-        case .snow: return "snowflake"
-        case .neonMist: return "cloud.fog.fill"
-        }
-    }
-
-    var baseTemp: Int {
-        switch self {
-        case .sunny: return 26
-        case .rain: return 19
-        case .snow: return -2
-        case .neonMist: return 16
-        }
-    }
-
-    var humidity: String {
-        switch self {
-        case .sunny: return "46%"
-        case .rain: return "88%"
-        case .snow: return "72%"
-        case .neonMist: return "91%"
-        }
-    }
-
-    var shaderTint: SIMD3<Float> {
-        switch self {
-        case .sunny: return SIMD3<Float>(1.0, 0.78, 0.32)
-        case .rain: return SIMD3<Float>(0.26, 0.66, 1.0)
-        case .snow: return SIMD3<Float>(0.68, 0.94, 1.0)
-        case .neonMist: return SIMD3<Float>(0.76, 0.42, 1.0)
-        }
     }
 }
 

@@ -15,8 +15,8 @@ targets:
       path: BuildSupport/App-Info.plist
       properties:
         CFBundleDisplayName: LiquidGlass
-        CFBundleShortVersionString: "3.0.0"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "4.0.0"
+        CFBundleVersion: "4"
         CADisableMinimumFrameDurationOnPhone: true
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
@@ -28,7 +28,7 @@ targets:
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        NSPhotoLibraryUsageDescription: "匯入相簿照片作為 iOS 原生與 Metal 液態玻璃的即時折射背景。"
+        NSPhotoLibraryUsageDescription: "匯入相簿照片作為 iOS 原生與 Metal 液態玻璃沙漏的即時折射背景。"
         CFBundleURLTypes:
           - CFBundleURLName: com.custom.liquidglass
             CFBundleURLSchemes:
@@ -40,8 +40,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.custom.liquidglass
-        MARKETING_VERSION: "3.0.0"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "4.0.0"
+        CURRENT_PROJECT_VERSION: "4"
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         CLANG_ENABLE_MODULES: YES
@@ -59,15 +59,15 @@ targets:
       path: BuildSupport/Widget-Info.plist
       properties:
         CFBundleDisplayName: LiquidGlassWidget
-        CFBundleShortVersionString: "3.0.0"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "4.0.0"
+        CFBundleVersion: "4"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.custom.liquidglass.widget
-        MARKETING_VERSION: "3.0.0"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "4.0.0"
+        CURRENT_PROJECT_VERSION: "4"
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         CLANG_ENABLE_MODULES: YES
