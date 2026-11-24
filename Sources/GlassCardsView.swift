@@ -1,45 +1,33 @@
 import SwiftUI
 import PhotosUI
 
-// MARK: - Top Safe-Area HUD (One-Tap Engine Switcher, Photo Import, Reset & 120Hz FPS)
+// MARK: - Top Safe-Area HUD (Clean Unobstructed Top Bar Below Status Bar)
 
 struct TopStatusHUD: View {
     let controller: GlassSceneController
     @Binding var selectedPhotoItem: PhotosPickerItem?
-    let namespace: Namespace.ID
 
     var body: some View {
-        let useNative = controller.useNativeSystemGlass
         let isBright = controller.wallpaper.isBrightBackground
-        let pillBg = useNative
-            ? Color.clear
-            : (isBright ? Color.black.opacity(0.68) : Color.black.opacity(0.38))
+        let pillBg = isBright ? Color.black.opacity(0.70) : Color.black.opacity(0.42)
 
         HStack(spacing: 6) {
-            // One-Tap Instant Switch: iOS 27 Native Glass <-> Custom Metal 120Hz Optics
+            // Instant Switch: Metal 120Hz Optics <-> iOS 27 Native Glass
             Button {
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
-                    controller.engineMode = controller.engineMode.toggled()
-                }
+                controller.engineMode = controller.engineMode.toggled()
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: controller.engineMode.icon)
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(controller.engineMode == .nativeAppleGlass ? Color.cyan : Color(red: 1.0, green: 0.72, blue: 0.28))
+                        .foregroundStyle(controller.engineMode == .nativeAppleGlass ? Color.cyan : Color(red: 1.0, green: 0.76, blue: 0.28))
                     Text(controller.engineMode.title)
                         .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                        .foregroundStyle(useNative && isBright ? Color.black : Color.white)
+                        .foregroundStyle(Color.white)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6.5)
                 .background(pillBg, in: Capsule())
-                .adaptiveLiquidGlassCapsule(
-                    useNative: useNative,
-                    isClear: false,
-                    morphID: "hud-engine-switch",
-                    unionID: "hud-left-union",
-                    namespace: namespace
-                )
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7))
             }
             .buttonStyle(.plain)
 
@@ -52,18 +40,12 @@ struct TopStatusHUD: View {
                         .foregroundStyle(Color.cyan)
                     Text(controller.lensShape.shortTitle)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(useNative && isBright ? Color.black : Color.white)
+                        .foregroundStyle(Color.white)
                 }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 6.5)
                 .background(pillBg, in: Capsule())
-                .adaptiveLiquidGlassCapsule(
-                    useNative: useNative,
-                    isClear: false,
-                    morphID: "hud-shape-switch",
-                    unionID: "hud-left-union",
-                    namespace: namespace
-                )
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7))
             }
             .buttonStyle(.plain)
 
@@ -72,15 +54,10 @@ struct TopStatusHUD: View {
             PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
                 Image(systemName: "photo.on.rectangle.angled")
                     .font(.system(size: 11.5, weight: .bold))
-                    .foregroundStyle(controller.wallpaper == .customPhoto ? Color.cyan : (useNative && isBright ? Color.black : Color.white))
-                    .frame(width: 29, height: 28)
+                    .foregroundStyle(controller.wallpaper == .customPhoto ? Color.cyan : Color.white)
+                    .frame(width: 30, height: 28)
                     .background(pillBg, in: Capsule())
-                    .adaptiveLiquidGlassCapsule(
-                        useNative: useNative,
-                        isClear: false,
-                        unionID: "hud-right-union",
-                        namespace: namespace
-                    )
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7))
             }
             .buttonStyle(.plain)
 
@@ -89,15 +66,10 @@ struct TopStatusHUD: View {
             } label: {
                 Image(systemName: "arrow.counterclockwise")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(useNative && isBright ? Color.black : Color.white)
-                    .frame(width: 29, height: 28)
+                    .foregroundStyle(Color.white)
+                    .frame(width: 30, height: 28)
                     .background(pillBg, in: Capsule())
-                    .adaptiveLiquidGlassCapsule(
-                        useNative: useNative,
-                        isClear: false,
-                        unionID: "hud-right-union",
-                        namespace: namespace
-                    )
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7))
             }
             .buttonStyle(.plain)
 
@@ -106,22 +78,14 @@ struct TopStatusHUD: View {
                     Circle()
                         .fill(fpsStatusColor)
                         .frame(width: 6, height: 6)
-                    Text("\(controller.currentFPS)")
+                    Text("\(controller.currentFPS) FPS")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(useNative && isBright ? Color.black : Color.white)
-                    Text("FPS")
-                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
-                        .foregroundStyle((useNative && isBright ? Color.black : Color.white).opacity(0.68))
+                        .foregroundStyle(Color.white)
                 }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 6.5)
                 .background(pillBg, in: Capsule())
-                .adaptiveLiquidGlassCapsule(
-                    useNative: useNative,
-                    isClear: false,
-                    morphID: "hud-fps-pill",
-                    namespace: namespace
-                )
+                .overlay(Capsule().strokeBorder(fpsStatusColor.opacity(0.45), lineWidth: 0.7))
                 .onTapGesture {
                     HapticsManager.shared.selection()
                     controller.showFPS = false
@@ -141,17 +105,15 @@ struct TopStatusHUD: View {
     }
 }
 
-// MARK: - Zone 0: Dual-Droplet Liquid Fusion Lab Pill Bar (With glassEffectUnion)
+// MARK: - Zone 0: Dual-Droplet Liquid Fusion Lab Pill Bar
 
 struct LensFusionLabPillOverlay: View {
     let controller: GlassSceneController
     let pillWidth: CGFloat
-    let namespace: Namespace.ID
 
     var body: some View {
         let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
         let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
-        let useNative = controller.useNativeSystemGlass
 
         HStack(spacing: 6) {
             labChip(icon: "drop.degreesign.fill", title: "雙水滴", isActive: controller.dualDropletEnabled, primary: primary, subtleFill: subtleFill) {
@@ -171,15 +133,8 @@ struct LensFusionLabPillOverlay: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(width: pillWidth, height: 50)
-        .adaptiveLiquidGlassCapsule(
-            useNative: useNative,
-            isClear: controller.tintMode == .clear,
-            tint: controller.tintMode.nativeTintOverlay,
-            morphID: "zone-lab-pill",
-            unionID: "lab-bar-union",
-            namespace: namespace
-        )
+        .frame(width: pillWidth, height: 48)
+        .singleLayerGlassCapsule(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode)
     }
 
     private func labChip(
@@ -200,7 +155,7 @@ struct LensFusionLabPillOverlay: View {
             }
             .foregroundStyle(isActive ? Color.black : primary)
             .frame(maxWidth: .infinity)
-            .frame(height: 34)
+            .frame(height: 32)
             .background(isActive ? Color.cyan : subtleFill, in: Capsule())
         }
         .buttonStyle(.plain)
@@ -212,8 +167,10 @@ struct LensFusionLabPillOverlay: View {
 struct MusicPlayerCardOverlay: View {
     let controller: GlassSceneController
     let cardWidth: CGFloat
-    let namespace: Namespace.ID
+    let baseCenter: CGPoint
 
+    @State private var committedOffset: CGSize = .zero
+    @State private var activeDrag: CGSize = .zero
     @State private var lastScrubBucket: Int = -1
     @State private var activePadBounce: Int = -1
 
@@ -222,22 +179,19 @@ struct MusicPlayerCardOverlay: View {
         let secondary = controller.tintMode.secondaryTextColor(over: controller.wallpaper)
         let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
         let prominentFill = controller.tintMode.prominentFillColor(over: controller.wallpaper)
-        let useNative = controller.useNativeSystemGlass
         let track = controller.currentTrack
+        let totalOffset = CGSize(
+            width: committedOffset.width + activeDrag.width,
+            height: committedOffset.height + activeDrag.height
+        )
 
         VStack(spacing: 10) {
             HStack(spacing: 11) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [track.accentPrimary, track.accentSecondary],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(LinearGradient(colors: [track.accentPrimary, track.accentSecondary], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: 46, height: 46)
-                        .shadow(color: track.accentPrimary.opacity(0.45), radius: 8, y: 3)
+                        .shadow(color: track.accentPrimary.opacity(0.42), radius: 6, y: 2)
 
                     AudioSpectrumBarsView(isPlaying: controller.isPlayingMusic)
                 }
@@ -261,27 +215,27 @@ struct MusicPlayerCardOverlay: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(primary)
                             .frame(width: 28, height: 28)
-                            .background(useNative ? Color.clear : subtleFill, in: Circle())
+                            .background(subtleFill, in: Circle())
                     }
-                    .adaptiveGlassButtonStyle(useNative: useNative)
+                    .buttonStyle(.plain)
 
                     Button { controller.togglePlayPause() } label: {
                         Image(systemName: controller.isPlayingMusic ? "pause.fill" : "play.fill")
                             .font(.system(size: 13, weight: .black))
-                            .foregroundStyle(useNative ? Color.white : primary)
+                            .foregroundStyle(primary)
                             .frame(width: 32, height: 32)
-                            .background(useNative ? Color.clear : prominentFill, in: Circle())
+                            .background(prominentFill, in: Circle())
                     }
-                    .adaptiveGlassButtonStyle(useNative: useNative, prominent: true)
+                    .buttonStyle(.plain)
 
                     Button { controller.nextTrack() } label: {
                         Image(systemName: "forward.fill")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(primary)
                             .frame(width: 28, height: 28)
-                            .background(useNative ? Color.clear : subtleFill, in: Circle())
+                            .background(subtleFill, in: Circle())
                     }
-                    .adaptiveGlassButtonStyle(useNative: useNative)
+                    .buttonStyle(.plain)
 
                     CardPinButton(isPinned: controller.pinnedMusic, primary: primary, subtleFill: subtleFill) {
                         controller.togglePin(for: .musicBeat)
@@ -329,8 +283,8 @@ struct MusicPlayerCardOverlay: View {
                     let isBouncing = (activePadBounce == pad.id)
                     Button {
                         withAnimation(.spring(response: 0.24, dampingFraction: 0.45)) { activePadBounce = pad.id }
-                        let padX = controller.musicCardCenter.x + CGFloat(pad.id - 1) * 72.0 - 36.0
-                        controller.triggerBeatPad(index: pad.id, screenPoint: CGPoint(x: padX, y: controller.musicCardCenter.y + 52))
+                        let padX = baseCenter.x + totalOffset.width + CGFloat(pad.id - 1) * 72.0 - 36.0
+                        controller.triggerBeatPad(index: pad.id, screenPoint: CGPoint(x: padX, y: baseCenter.y + totalOffset.height + 52))
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                             withAnimation(.spring(response: 0.28, dampingFraction: 0.6)) {
                                 if activePadBounce == pad.id { activePadBounce = -1 }
@@ -356,7 +310,7 @@ struct MusicPlayerCardOverlay: View {
                             RoundedRectangle(cornerRadius: 13, style: .continuous)
                                 .strokeBorder(pad.color.opacity(isBouncing ? 0.9 : 0.28), lineWidth: 0.9)
                         )
-                        .scaleEffect(isBouncing ? 1.10 : 1.0)
+                        .scaleEffect(isBouncing ? 1.08 : 1.0)
                     }
                     .buttonStyle(.plain)
                 }
@@ -365,18 +319,23 @@ struct MusicPlayerCardOverlay: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(width: cardWidth, height: 176)
-        .adaptiveLiquidGlassCard(
-            useNative: useNative,
-            tintMode: controller.tintMode,
-            cornerRadius: 30,
-            morphID: controller.isVaultedInIsland ? "island-vault-anchor" : "card-music",
-            namespace: namespace
-        )
+        .singleLayerGlassPlate(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode, cornerRadius: 30)
         .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .position(x: baseCenter.x + totalOffset.width, y: baseCenter.y + totalOffset.height)
         .gesture(
-            DragGesture(minimumDistance: 8, coordinateSpace: .named("screen"))
-                .onChanged { val in controller.updateMusicCardDrag(translation: val.translation, velocity: val.velocity) }
-                .onEnded { val in controller.endMusicCardDrag(velocity: val.velocity) }
+            DragGesture(minimumDistance: 8)
+                .onChanged { val in
+                    activeDrag = val.translation
+                    controller.setCardLiveOffset(
+                        tab: .musicBeat,
+                        offset: CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
+                    )
+                }
+                .onEnded { val in
+                    committedOffset = CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
+                    activeDrag = .zero
+                    controller.setCardLiveOffset(tab: .musicBeat, offset: committedOffset)
+                }
         )
     }
 
@@ -390,7 +349,7 @@ struct AudioSpectrumBarsView: View {
     let isPlaying: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: !isPlaying)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             HStack(alignment: .center, spacing: 3) {
                 ForEach(0..<4, id: \.self) { idx in
@@ -405,20 +364,25 @@ struct AudioSpectrumBarsView: View {
     }
 }
 
-// MARK: - Zone 2: Liquid Control Hub (With System Live Activity Jelly Toggle)
+// MARK: - Zone 2: Liquid Control Hub (With Global System Dynamic Island Toggle)
 
 struct MiniControlCenterOverlay: View {
     @Bindable var controller: GlassSceneController
     let cardWidth: CGFloat
-    let namespace: Namespace.ID
+    let baseCenter: CGPoint
 
+    @State private var committedOffset: CGSize = .zero
+    @State private var activeDrag: CGSize = .zero
     @State private var lastBrightnessBucket: Int = -1
 
     var body: some View {
         let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
         let secondary = controller.tintMode.secondaryTextColor(over: controller.wallpaper)
         let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
-        let useNative = controller.useNativeSystemGlass
+        let totalOffset = CGSize(
+            width: committedOffset.width + activeDrag.width,
+            height: committedOffset.height + activeDrag.height
+        )
 
         VStack(spacing: 9) {
             HStack {
@@ -471,7 +435,7 @@ struct MiniControlCenterOverlay: View {
 
                 controlTile(
                     icon: controller.engineMode.icon,
-                    title: controller.engineMode == .nativeAppleGlass ? "原生引擎" : "Metal引擎",
+                    title: controller.engineMode == .nativeAppleGlass ? "原生玻璃" : "Metal光學",
                     isActive: controller.engineMode == .nativeAppleGlass,
                     activeColor: Color(red: 0.45, green: 0.92, blue: 1.0),
                     primary: primary,
@@ -483,19 +447,19 @@ struct MiniControlCenterOverlay: View {
 
             VStack(spacing: 5) {
                 LiquidJellyToggle(
-                    title: "釘選至系統動態島 (Live Activity)",
+                    title: "全局系統動態島 (Live Activity)",
                     icon: "capsule.portrait.tophalf.filled",
                     isOn: $controller.liveActivityEnabled,
                     primaryColor: primary
                 )
                 LiquidJellyToggle(
-                    title: "雙水滴與動態島磁吸融合",
+                    title: "雙水滴與挖孔黑洞融合",
                     icon: "drop.degreesign.fill",
                     isOn: $controller.metaballFusionEnabled,
                     primaryColor: primary
                 )
                 LiquidJellyToggle(
-                    title: "超亮稜鏡邊緣光 (Prism Rim)",
+                    title: "超亮光譜稜鏡邊緣 (Prism Rim)",
                     icon: "sparkle.magnifyingglass",
                     isOn: $controller.prismRimBoostEnabled,
                     primaryColor: primary
@@ -545,18 +509,23 @@ struct MiniControlCenterOverlay: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
         .frame(width: cardWidth, height: 252)
-        .adaptiveLiquidGlassCard(
-            useNative: useNative,
-            tintMode: controller.tintMode,
-            cornerRadius: 30,
-            morphID: controller.isVaultedInIsland ? "island-vault-anchor" : "card-control",
-            namespace: namespace
-        )
+        .singleLayerGlassPlate(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode, cornerRadius: 30)
         .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .position(x: baseCenter.x + totalOffset.width, y: baseCenter.y + totalOffset.height)
         .gesture(
-            DragGesture(minimumDistance: 8, coordinateSpace: .named("screen"))
-                .onChanged { val in controller.updateControlCardDrag(translation: val.translation, velocity: val.velocity) }
-                .onEnded { val in controller.endControlCardDrag(velocity: val.velocity) }
+            DragGesture(minimumDistance: 8)
+                .onChanged { val in
+                    activeDrag = val.translation
+                    controller.setCardLiveOffset(
+                        tab: .controlHub,
+                        offset: CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
+                    )
+                }
+                .onEnded { val in
+                    committedOffset = CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
+                    activeDrag = .zero
+                    controller.setCardLiveOffset(tab: .controlHub, offset: committedOffset)
+                }
         )
     }
 
@@ -595,16 +564,22 @@ struct MiniControlCenterOverlay: View {
 struct WeatherSolarCardOverlay: View {
     @Bindable var controller: GlassSceneController
     let cardWidth: CGFloat
-    let namespace: Namespace.ID
+    let baseCenter: CGPoint
+
+    @State private var committedOffset: CGSize = .zero
+    @State private var activeDrag: CGSize = .zero
 
     var body: some View {
         let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
         let secondary = controller.tintMode.secondaryTextColor(over: controller.wallpaper)
         let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
-        let useNative = controller.useNativeSystemGlass
         let cond = controller.weatherCondition
         let tempOffset = Int((sin((controller.solarHour - 9.0) / 24.0 * 2.0 * .pi) * 4.0).rounded())
         let displayTemp = cond.baseTemp + tempOffset
+        let totalOffset = CGSize(
+            width: committedOffset.width + activeDrag.width,
+            height: committedOffset.height + activeDrag.height
+        )
 
         VStack(spacing: 11) {
             HStack(alignment: .center) {
@@ -636,7 +611,7 @@ struct WeatherSolarCardOverlay: View {
                     let selected = (controller.weatherCondition == item)
                     Button {
                         controller.weatherCondition = item
-                        controller.triggerRipple(at: controller.weatherCardCenter, strength: 0.70)
+                        controller.triggerRipple(at: CGPoint(x: baseCenter.x + totalOffset.width, y: baseCenter.y + totalOffset.height), strength: 0.70)
                         HapticsManager.shared.selection()
                     } label: {
                         HStack(spacing: 4) {
@@ -666,24 +641,29 @@ struct WeatherSolarCardOverlay: View {
                 secondaryColor: secondary
             )
             .onChange(of: Int(controller.solarHour)) { _, _ in
-                controller.syncLiveActivityIfNeeded()
+                controller.syncLiveActivityNow()
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(width: cardWidth, height: 196)
-        .adaptiveLiquidGlassCard(
-            useNative: useNative,
-            tintMode: controller.tintMode,
-            cornerRadius: 30,
-            morphID: controller.isVaultedInIsland ? "island-vault-anchor" : "card-weather",
-            namespace: namespace
-        )
+        .singleLayerGlassPlate(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode, cornerRadius: 30)
         .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .position(x: baseCenter.x + totalOffset.width, y: baseCenter.y + totalOffset.height)
         .gesture(
-            DragGesture(minimumDistance: 8, coordinateSpace: .named("screen"))
-                .onChanged { val in controller.updateWeatherCardDrag(translation: val.translation, velocity: val.velocity) }
-                .onEnded { val in controller.endWeatherCardDrag(velocity: val.velocity) }
+            DragGesture(minimumDistance: 8)
+                .onChanged { val in
+                    activeDrag = val.translation
+                    controller.setCardLiveOffset(
+                        tab: .weatherSolar,
+                        offset: CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
+                    )
+                }
+                .onEnded { val in
+                    committedOffset = CGSize(width: committedOffset.width + val.translation.width, height: committedOffset.height + val.translation.height)
+                    activeDrag = .zero
+                    controller.setCardLiveOffset(tab: .weatherSolar, offset: committedOffset)
+                }
         )
     }
 
@@ -692,16 +672,16 @@ struct WeatherSolarCardOverlay: View {
     }
 }
 
-// MARK: - Zone 4: Optical & Wallpaper Studio Drawer
+// MARK: - Zone 4: Optical Studio + iPhone 18 Pro Hardware Cutout Precision Calibration
 
 struct StudioDrawerOverlay: View {
     @Bindable var controller: GlassSceneController
     @Binding var selectedPhotoItem: PhotosPickerItem?
     let drawerWidth: CGFloat
-    let namespace: Namespace.ID
+
+    @State private var showCutoutCalibration: Bool = false
 
     var body: some View {
-        let useNative = controller.useNativeSystemGlass
         let primary: Color = controller.tintMode == .light
             ? Color(red: 0.08, green: 0.11, blue: 0.18)
             : Color.white
@@ -711,24 +691,47 @@ struct StudioDrawerOverlay: View {
             : Color.white.opacity(0.14)
 
         VStack(spacing: 10) {
-            HStack {
-                Label("光學與雙引擎工作坊", systemImage: "sparkles.rectangle.stack.fill")
-                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                    .foregroundStyle(primary)
+            HStack(spacing: 6) {
+                Label(
+                    showCutoutCalibration ? "iPhone 18 Pro 挖孔校準" : "光學與材質工作坊",
+                    systemImage: showCutoutCalibration ? "capsule.portrait.tophalf.filled" : "sparkles.rectangle.stack.fill"
+                )
+                .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                .foregroundStyle(primary)
+                .lineLimit(1)
 
-                Spacer()
+                Spacer(minLength: 4)
+
+                // Toggle hidden/advanced iPhone 18 Pro hardware cutout pixel-calibration sliders
+                Button {
+                    showCutoutCalibration.toggle()
+                    HapticsManager.shared.selection()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "viewfinder")
+                            .font(.system(size: 10, weight: .bold))
+                        Text(showCutoutCalibration ? "返回光學" : "挖孔微調")
+                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                    }
+                    .foregroundStyle(showCutoutCalibration ? Color.black : primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(showCutoutCalibration ? Color.cyan : pillBg, in: Capsule())
+                }
+                .buttonStyle(.plain)
 
                 Button {
-                    withAnimation(.spring(response: 0.36, dampingFraction: 0.72)) {
-                        controller.engineMode = controller.engineMode.toggled()
-                    }
+                    controller.engineMode = controller.engineMode.toggled()
                 } label: {
                     Text(controller.engineMode.badgeLabel)
                         .font(.system(size: 10.5, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.black)
-                        .padding(.horizontal, 9)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .background(Color.cyan, in: Capsule())
+                        .background(
+                            controller.engineMode == .nativeAppleGlass ? Color.white : Color.cyan,
+                            in: Capsule()
+                        )
                 }
                 .buttonStyle(.plain)
 
@@ -745,6 +748,7 @@ struct StudioDrawerOverlay: View {
                 .buttonStyle(.plain)
             }
 
+            // 4 Wallpapers + Photo Picker
             HStack(spacing: 6) {
                 ForEach(WallpaperPreset.builtInPresets) { preset in
                     let selected = controller.wallpaper == preset
@@ -761,10 +765,7 @@ struct StudioDrawerOverlay: View {
                         .foregroundStyle(selected ? Color.black : primary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(
-                            selected ? Color.white : pillBg,
-                            in: RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        )
+                        .background(selected ? Color.white : pillBg, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                     }
                     .buttonStyle(.plain)
                 }
@@ -780,14 +781,12 @@ struct StudioDrawerOverlay: View {
                     .foregroundStyle(selected ? Color.black : primary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(
-                        selected ? Color.cyan : pillBg,
-                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    )
+                    .background(selected ? Color.cyan : pillBg, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
 
+            // 3 Glass Material Tints + FPS Toggle
             HStack(spacing: 6) {
                 ForEach(GlassTintMode.allCases) { mode in
                     let isSelected = controller.tintMode == mode
@@ -795,51 +794,120 @@ struct StudioDrawerOverlay: View {
                         controller.tintMode = mode
                         HapticsManager.shared.selection()
                     } label: {
-                        Text(mode.title)
+                        Text(mode.shortTitle)
                             .font(.system(size: 11.5, weight: .bold, design: .rounded))
                             .foregroundStyle(isSelected ? Color.black : primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)
-                            .background(
-                                isSelected ? Color(red: 0.56, green: 0.94, blue: 1.0) : pillBg,
-                                in: Capsule()
-                            )
+                            .background(isSelected ? Color(red: 0.56, green: 0.94, blue: 1.0) : pillBg, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
 
-                if controller.wallpaper == .customPhoto {
-                    Button {
-                        controller.showTypographyOnPhoto.toggle()
-                        HapticsManager.shared.selection()
-                    } label: {
-                        Image(systemName: "textformat")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(controller.showTypographyOnPhoto ? Color.black : primary)
-                            .frame(width: 34, height: 30)
-                            .background(controller.showTypographyOnPhoto ? Color.white : pillBg, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+                Button {
+                    controller.showFPS.toggle()
+                    HapticsManager.shared.selection()
+                } label: {
+                    Text("120Hz")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(controller.showFPS ? Color.black : primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(controller.showFPS ? Color.cyan : pillBg, in: Capsule())
                 }
+                .buttonStyle(.plain)
             }
 
-            VStack(spacing: 6) {
-                LiquidJellySlider(title: "折射強度", value: $controller.refraction, range: 0...95, format: "%.0f", primaryColor: primary, secondaryColor: secondary)
-                LiquidJellySlider(title: "倒角寬度", value: $controller.bezel, range: 6...68, format: "%.0f pt", primaryColor: primary, secondaryColor: secondary)
-                LiquidJellySlider(title: "彩虹色散", value: $controller.dispersion, range: 0...0.28, format: "%.2f", primaryColor: primary, secondaryColor: secondary)
-                LiquidJellySlider(title: "霧面磨砂", value: $controller.frost, range: 0...4.0, format: "%.1f", primaryColor: primary, secondaryColor: secondary)
+            if showCutoutCalibration {
+                // iPhone 18 Pro Compact Dynamic Island Cutout Pixel-Alignment Sliders (#000000 Black Hole)
+                VStack(spacing: 7) {
+                    LiquidJellySlider(
+                        title: "挖孔寬度",
+                        value: $controller.islandWidthPt,
+                        range: 64...128,
+                        format: "%.0f pt",
+                        primaryColor: primary,
+                        secondaryColor: secondary
+                    )
+                    LiquidJellySlider(
+                        title: "挖孔高度",
+                        value: $controller.islandHeightPt,
+                        range: 22...42,
+                        format: "%.0f pt",
+                        primaryColor: primary,
+                        secondaryColor: secondary
+                    )
+                    LiquidJellySlider(
+                        title: "頂部距離",
+                        value: $controller.islandTopMarginPt,
+                        range: 6...24,
+                        format: "%.1f pt",
+                        primaryColor: primary,
+                        secondaryColor: secondary
+                    )
+                    HStack {
+                        Text("預設對齊 iPhone 18 Pro 窄版純黑挖孔 (#000000)")
+                            .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(secondary)
+                        Spacer()
+                        Button("重置 88×32") {
+                            controller.islandWidthPt = 88.0
+                            controller.islandHeightPt = 32.0
+                            controller.islandTopMarginPt = 12.0
+                            HapticsManager.shared.selection()
+                        }
+                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.cyan)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 2)
+                }
+            } else {
+                // 4 Optical Sliders — Scrubbing ANY slider auto-activates Custom Metal Optics for instant dispersion!
+                VStack(spacing: 6) {
+                    LiquidJellySlider(
+                        title: "折射強度",
+                        value: $controller.refraction,
+                        range: 0...95,
+                        format: "%.0f",
+                        primaryColor: primary,
+                        secondaryColor: secondary,
+                        onScrub: { controller.activateMetalOpticsIfNeeded() }
+                    )
+                    LiquidJellySlider(
+                        title: "倒角寬度",
+                        value: $controller.bezel,
+                        range: 6...68,
+                        format: "%.0f pt",
+                        primaryColor: primary,
+                        secondaryColor: secondary,
+                        onScrub: { controller.activateMetalOpticsIfNeeded() }
+                    )
+                    LiquidJellySlider(
+                        title: "彩虹色散",
+                        value: $controller.dispersion,
+                        range: 0...0.28,
+                        format: "%.2f",
+                        primaryColor: primary,
+                        secondaryColor: secondary,
+                        onScrub: { controller.activateMetalOpticsIfNeeded() }
+                    )
+                    LiquidJellySlider(
+                        title: "霧面磨砂",
+                        value: $controller.frost,
+                        range: 0...4.0,
+                        format: "%.1f",
+                        primaryColor: primary,
+                        secondaryColor: secondary,
+                        onScrub: { controller.activateMetalOpticsIfNeeded() }
+                    )
+                }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .frame(width: drawerWidth, height: 360)
-        .adaptiveLiquidGlassCard(
-            useNative: useNative,
-            tintMode: controller.tintMode,
-            cornerRadius: 32,
-            morphID: "card-studio-drawer",
-            namespace: namespace
-        )
+        .frame(width: drawerWidth, height: 388)
+        .singleLayerGlassPlate(useNative: controller.useNativeSystemGlass, tintMode: controller.tintMode, cornerRadius: 30)
     }
 }
 

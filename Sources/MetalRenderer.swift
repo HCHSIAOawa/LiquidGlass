@@ -4,6 +4,150 @@ import Metal
 import MetalKit
 import QuartzCore
 
+// MARK: - Interactive 120Hz MTKView (Handles Droplet, Pinch & Cutout Touches with Zero SwiftUI State Overhead)
+
+@MainActor
+final class InteractiveMTKView: MTKView, UIGestureRecognizerDelegate {
+    weak var sceneController: GlassSceneController?
+
+    private enum ActivePanTarget {
+        case none
+        case islandCutout
+        case companionDroplet
+        case heroDroplet
+        case waterCanvas
+    }
+
+    private var activePanTarget: ActivePanTarget = .none
+    private var lastWaterRippleTime: CFTimeInterval = 0
+
+    func installPlaygroundGestures() {
+        isUserInteractionEnabled = true
+        isMultipleTouchEnabled = true
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.maximumNumberOfTouches = 2
+        pan.delegate = self
+        addGestureRecognizer(pan)
+
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        pinch.delegate = self
+        addGestureRecognizer(pinch)
+
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        addGestureRecognizer(doubleTap)
+
+        let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleSingleTap(_:)))
+        singleTap.numberOfTapsRequired = 1
+        singleTap.require(toFail: doubleTap)
+        addGestureRecognizer(singleTap)
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        if (gestureRecognizer is UIPanGestureRecognizer && otherGestureRecognizer is UIPinchGestureRecognizer) ||
+           (gestureRecognizer is UIPinchGestureRecognizer && otherGestureRecognizer is UIPanGestureRecognizer) {
+            return true
+        }
+        return false
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard let ctrl = sceneController else { return }
+        let loc = gesture.location(in: self)
+        let trans = gesture.translation(in: self)
+        let vel = gesture.velocity(in: self)
+
+        switch gesture.state {
+        case .began:
+            if ctrl.hitTestHardwareIsland(at: loc) {
+                activePanTarget = .islandCutout
+            } else if ctrl.hitTestCompanionDroplet(at: loc) {
+                activePanTarget = .companionDroplet
+                ctrl.beginCompanionDrag()
+            } else if ctrl.hitTestHeroDroplet(at: loc) {
+                activePanTarget = .heroDroplet
+                ctrl.beginLensDrag()
+            } else {
+                activePanTarget = .waterCanvas
+                ctrl.triggerRipple(at: loc, strength: 0.65)
+            }
+
+        case .changed:
+            switch activePanTarget {
+            case .islandCutout:
+                if trans.y > 0 {
+                    ctrl.updateIslandPullDown(translationY: trans.y)
+                }
+            case .companionDroplet:
+                ctrl.updateCompanionDrag(translation: CGSize(width: trans.x, height: trans.y), velocity: CGSize(width: vel.x, height: vel.y), location: loc)
+            case .heroDroplet:
+                ctrl.updateLensDrag(translation: CGSize(width: trans.x, height: trans.y), velocity: CGSize(width: vel.x, height: vel.y), location: loc)
+            case .waterCanvas:
+                let now = CACurrentMediaTime()
+                if now - lastWaterRippleTime > 0.09 {
+                    lastWaterRippleTime = now
+                    ctrl.triggerRipple(at: loc, strength: 0.45)
+                }
+            case .none:
+                break
+            }
+
+        case .ended, .cancelled, .failed:
+            switch activePanTarget {
+            case .islandCutout:
+                ctrl.endIslandPullDown()
+            case .companionDroplet:
+                ctrl.endCompanionDrag(velocity: CGSize(width: vel.x, height: vel.y))
+            case .heroDroplet:
+                ctrl.endLensDrag(velocity: CGSize(width: vel.x, height: vel.y))
+            case .waterCanvas, .none:
+                break
+            }
+            activePanTarget = .none
+
+        default:
+            break
+        }
+    }
+
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        guard let ctrl = sceneController else { return }
+        switch gesture.state {
+        case .began, .changed:
+            ctrl.updateLensPinch(magnification: gesture.scale)
+        case .ended, .cancelled, .failed:
+            ctrl.endLensPinch()
+        default:
+            break
+        }
+    }
+
+    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended, let ctrl = sceneController else { return }
+        ctrl.cycleLensShape()
+    }
+
+    @objc private func handleSingleTap(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended, let ctrl = sceneController else { return }
+        let loc = gesture.location(in: self)
+        if ctrl.hitTestHardwareIsland(at: loc) {
+            ctrl.handleHardwareIslandTap()
+        } else {
+            ctrl.triggerRipple(at: loc, strength: 0.78)
+            HapticsManager.shared.tapSoft(intensity: 0.38)
+            if ctrl.selectedTab == .opticalStudio {
+                ctrl.selectedTab = .lensLab
+            }
+        }
+    }
+}
+
+// MARK: - SwiftUI Representable Wrapping 120Hz InteractiveMTKView
+
 @MainActor
 struct MetalLiquidGlassView: UIViewRepresentable {
     let controller: GlassSceneController
@@ -12,8 +156,9 @@ struct MetalLiquidGlassView: UIViewRepresentable {
         MetalRenderer(controller: controller)
     }
 
-    func makeUIView(context: Context) -> MTKView {
-        let mtkView = MTKView(frame: .zero, device: context.coordinator.device)
+    func makeUIView(context: Context) -> InteractiveMTKView {
+        let mtkView = InteractiveMTKView(frame: .zero, device: context.coordinator.device)
+        mtkView.sceneController = controller
         mtkView.delegate = context.coordinator
         mtkView.preferredFramesPerSecond = 120
         mtkView.isPaused = false
@@ -24,16 +169,19 @@ struct MetalLiquidGlassView: UIViewRepresentable {
         let displayScale = UITraitCollection.current.displayScale
         mtkView.contentScaleFactor = displayScale > 0 ? min(displayScale, 3.0) : 3.0
         mtkView.isOpaque = true
-        mtkView.isUserInteractionEnabled = false
+        mtkView.installPlaygroundGestures()
         return mtkView
     }
 
-    func updateUIView(_ uiView: MTKView, context: Context) {
+    func updateUIView(_ uiView: InteractiveMTKView, context: Context) {
+        uiView.sceneController = controller
         if uiView.preferredFramesPerSecond != 120 {
             uiView.preferredFramesPerSecond = 120
         }
     }
 }
+
+// MARK: - Single-Pass Pure GPU Metal Renderer
 
 @MainActor
 final class MetalRenderer: NSObject, MTKViewDelegate {
@@ -114,8 +262,8 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             roundedFont = baseFont
         }
 
-        let evenPhrase = "LIQUID GLASS · IOS 27 NATIVE · METAL 120HZ · "
-        let oddPhrase  = "DYNAMIC ISLAND · PRO MOTION · METABALL · "
+        let evenPhrase = "LIQUID GLASS · DISPERSION · METAL 120FPS · "
+        let oddPhrase  = "PRO MOTION · REFRACTION · PRISM OPTICS · "
 
         for row in 0..<rowCount {
             let isEven = (row % 2 == 0)
@@ -221,8 +369,8 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         )
         desc.usage = [.shaderRead]
         guard let tex = device.makeTexture(descriptor: desc) else { return nil }
-        let white: [UInt8] = [255, 255, 255, 255]
-        tex.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0, withBytes: white, bytesPerRow: 4)
+        let darkNeutral: [UInt8] = [28, 14, 10, 255]
+        tex.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0, withBytes: darkNeutral, bytesPerRow: 4)
         return tex
     }
 
@@ -237,6 +385,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             return
         }
 
+        // Pure GPU/Controller float update — NEVER mutates SwiftUI @State per frame!
         controller.stepFrame(now: CACurrentMediaTime(), drawablePointSize: view.bounds.size)
         uploadCustomPhotoIfNeeded(device: device)
 

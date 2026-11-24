@@ -18,9 +18,9 @@ struct SceneUniforms: Sendable {
     var layerFlags: SIMD4<Float> = .zero
     /// x: rippleCenter.x (pt), y: rippleCenter.y (pt), z: rippleRadius (pt), w: rippleStrength (0..1)
     var rippleParams: SIMD4<Float> = .zero
-    /// x: solarWarmth (-1..1), y: globalRimBoost (1..1.6), z: fusionSmoothness (pt), w: islandFusionActive (0/1)
+    /// x: solarWarmth (-1..1), y: globalRimBoost (1..1.6), z: fusionSmoothness (pt), w: islandHalfHeight (pt)
     var atmosphereParams: SIMD4<Float> = .zero
-    /// x: islandCenterX (pt), y: islandCenterY (pt), z: islandHaloScale (0..1.5), w: islandPullStretch (pt)
+    /// x: islandCenterX (pt), y: islandCenterY (pt), z: islandHalfWidth (pt), w: islandPullStretch (pt)
     var islandParams: SIMD4<Float> = .zero
 }
 
@@ -33,11 +33,11 @@ struct GlassElementUniform: Sendable {
     var shapeAndTransform: SIMD4<Float> = .zero
     /// x: opacity (0..1), y: refractionScale, z: frostBoost, w: shadowElevation
     var styleParams: SIMD4<Float> = .zero
-    /// xyz: accentRGB, w: accentStrength (-1.0 = Dual-Droplet Fusion leader, -2.0 = Island-Fusable Hero Droplet)
+    /// xyz: accentRGB, w: accentStrength (-1.0 = Dual-Droplet Fusion leader)
     var tintOverride: SIMD4<Float> = .zero
 }
 
-// MARK: - Dual Rendering Engine Mode (iOS 27 Native Compositor vs Custom Metal Optics)
+// MARK: - Dual Rendering Engine Mode
 
 enum GlassEngineMode: Int, CaseIterable, Identifiable, Sendable {
     case nativeAppleGlass = 0
@@ -71,7 +71,7 @@ enum GlassEngineMode: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-// MARK: - Bottom Native Liquid Glass Dock Tabs
+// MARK: - Bottom Single-Axis Liquid Glass Dock Tabs
 
 enum DockTab: Int, CaseIterable, Identifiable, Sendable {
     case lensLab = 0
@@ -99,15 +99,6 @@ enum DockTab: Int, CaseIterable, Identifiable, Sendable {
         case .controlHub: return "switch.2"
         case .weatherSolar: return "cloud.sun.fill"
         case .opticalStudio: return "slider.horizontal.3"
-        }
-    }
-
-    var supportsPinning: Bool {
-        switch self {
-        case .musicBeat, .controlHub, .weatherSolar:
-            return true
-        case .lensLab, .opticalStudio:
-            return false
         }
     }
 }
@@ -256,17 +247,17 @@ enum LensShapeMode: Int, CaseIterable, Identifiable, Sendable {
 
     var baseHalfSize: SIMD2<Float> {
         switch self {
-        case .circle: return SIMD2<Float>(88.0, 88.0)
-        case .pill: return SIMD2<Float>(138.0, 60.0)
-        case .squircle: return SIMD2<Float>(98.0, 98.0)
+        case .circle: return SIMD2<Float>(84.0, 84.0)
+        case .pill: return SIMD2<Float>(132.0, 58.0)
+        case .squircle: return SIMD2<Float>(92.0, 92.0)
         }
     }
 
     var baseCornerRadius: Float {
         switch self {
-        case .circle: return 88.0
-        case .pill: return 60.0
-        case .squircle: return 30.0
+        case .circle: return 84.0
+        case .pill: return 58.0
+        case .squircle: return 28.0
         }
     }
 
@@ -276,8 +267,6 @@ enum LensShapeMode: Int, CaseIterable, Identifiable, Sendable {
         return all[idx]
     }
 }
-
-// MARK: - Spatial Weather Condition Model
 
 enum WeatherCondition: Int, CaseIterable, Identifiable, Sendable {
     case sunny = 0
