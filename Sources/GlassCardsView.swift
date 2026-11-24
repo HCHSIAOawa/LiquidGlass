@@ -1,60 +1,62 @@
 import SwiftUI
 import PhotosUI
 
-// MARK: - Top Safe-Area HUD (Title Pill, Shape Pill & Live 120Hz FPS Monitor)
+// MARK: - Top Safe-Area HUD (App Badge, Quick Photo Import, Gyro & Live 120Hz FPS)
 
 struct TopStatusHUD: View {
     let controller: GlassSceneController
+    @Binding var selectedPhotoItem: PhotosPickerItem?
 
     var body: some View {
         let isBright = controller.wallpaper.isBrightBackground
-        let pillBg = isBright ? Color.black.opacity(0.68) : Color.black.opacity(0.36)
+        let pillBg = isBright ? Color.black.opacity(0.68) : Color.black.opacity(0.38)
 
-        HStack(spacing: 8) {
-            // App Badge + Quick Lens Morph Button
+        HStack(spacing: 7) {
             Button {
                 controller.cycleLensShape()
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Image(systemName: controller.lensShape.icon)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.cyan)
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundStyle(Color.cyan)
                     Text("LiquidGlass")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.white)
                     Text("· \(controller.lensShape.shortTitle)")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.75))
+                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.75))
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 11)
                 .padding(.vertical, 7)
                 .background(pillBg, in: Capsule())
-                .overlay(Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.20), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            // Gyro Indicator Pill
+            PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(controller.wallpaper == .customPhoto ? Color.cyan : Color.white.opacity(0.9))
+                    .frame(width: 30, height: 28)
+                    .background(pillBg, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8))
+            }
+            .buttonStyle(.plain)
+
             Button {
-                controller.gyroEnabled.toggle()
+                controller.resetPlaygroundLayout()
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: controller.gyroEnabled ? "gyroscope" : "hand.point.up.left.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(controller.gyroEnabled ? Color.mint : Color.white.opacity(0.6))
-                    Text(controller.gyroEnabled ? "陀螺儀" : "觸控光")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.88))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(pillBg, in: Capsule())
-                .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.8))
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.9))
+                    .frame(width: 30, height: 28)
+                    .background(pillBg, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
 
-            // Live 120Hz ProMotion FPS Monitor Badge
             if controller.showFPS {
                 HStack(spacing: 5) {
                     Circle()
@@ -62,12 +64,12 @@ struct TopStatusHUD: View {
                         .frame(width: 6, height: 6)
                     Text("\(controller.currentFPS) FPS")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.white)
                     Text(String(format: "%.1fms", controller.currentFrameMs))
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.68))
+                        .foregroundStyle(Color.white.opacity(0.68))
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 9)
                 .padding(.vertical, 7)
                 .background(pillBg, in: Capsule())
                 .overlay(Capsule().strokeBorder(fpsStatusColor.opacity(0.45), lineWidth: 0.8))
@@ -83,20 +85,107 @@ struct TopStatusHUD: View {
         if controller.currentFPS >= 110 {
             return Color(red: 0.22, green: 0.96, blue: 0.62)
         } else if controller.currentFPS >= 56 {
-            return .cyan
+            return Color.cyan
         } else {
-            return .orange
+            return Color.orange
         }
     }
 }
 
-// MARK: - Dynamic Music Player Liquid Glass Card
+// MARK: - Zone 0: Dual-Droplet Liquid Fusion Lab Pill Bar
+
+struct LensFusionLabPillOverlay: View {
+    let controller: GlassSceneController
+    let pillWidth: CGFloat
+
+    var body: some View {
+        let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
+        let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
+
+        HStack(spacing: 6) {
+            labChip(
+                icon: "drop.degreesign.fill",
+                title: "雙水滴",
+                isActive: controller.dualDropletEnabled,
+                primary: primary,
+                subtleFill: subtleFill
+            ) {
+                controller.dualDropletEnabled.toggle()
+            }
+
+            labChip(
+                icon: "infinity",
+                title: "液態融合",
+                isActive: controller.metaballFusionEnabled && controller.dualDropletEnabled,
+                primary: primary,
+                subtleFill: subtleFill
+            ) {
+                if !controller.dualDropletEnabled { controller.dualDropletEnabled = true }
+                controller.metaballFusionEnabled.toggle()
+                HapticsManager.shared.selection()
+            }
+
+            labChip(
+                icon: "gyroscope",
+                title: "重力滾動",
+                isActive: controller.gravityModeEnabled,
+                primary: primary,
+                subtleFill: subtleFill
+            ) {
+                controller.gravityModeEnabled.toggle()
+            }
+
+            labChip(
+                icon: "water.waves",
+                title: "水波觸控",
+                isActive: controller.touchRipplesEnabled,
+                primary: primary,
+                subtleFill: subtleFill
+            ) {
+                controller.touchRipplesEnabled.toggle()
+                HapticsManager.shared.selection()
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: pillWidth, height: 50)
+    }
+
+    private func labChip(
+        icon: String,
+        title: String,
+        isActive: Bool,
+        primary: Color,
+        subtleFill: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .bold))
+                Text(title)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isActive ? Color.black : primary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+            .background(
+                isActive ? Color.cyan : subtleFill,
+                in: Capsule()
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Zone 1: Dynamic Music Player & Synth Beat Shockwave Card
 
 struct MusicPlayerCardOverlay: View {
     let controller: GlassSceneController
     let cardWidth: CGFloat
 
     @State private var lastScrubBucket: Int = -1
+    @State private var activePadBounce: Int = -1
 
     var body: some View {
         let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
@@ -106,8 +195,7 @@ struct MusicPlayerCardOverlay: View {
         let track = controller.currentTrack
 
         VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                // Animated Album Orb + Audio Spectrum Bars
+            HStack(spacing: 11) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 15, style: .continuous)
                         .fill(
@@ -117,72 +205,60 @@ struct MusicPlayerCardOverlay: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 48, height: 48)
+                        .frame(width: 46, height: 46)
                         .shadow(color: track.accentPrimary.opacity(0.45), radius: 8, y: 3)
 
                     AudioSpectrumBarsView(isPlaying: controller.isPlayingMusic)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 5) {
-                        Text(track.title)
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                            .foregroundStyle(primary)
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                    }
+                    Text(track.title)
+                        .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(primary)
+                        .lineLimit(1)
                     Text(track.artist)
-                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
                         .foregroundStyle(secondary)
                         .lineLimit(1)
                 }
 
-                // Playback Transport Buttons
-                HStack(spacing: 6) {
-                    Button {
-                        controller.previousTrack()
-                    } label: {
+                Spacer(minLength: 2)
+
+                HStack(spacing: 5) {
+                    Button { controller.previousTrack() } label: {
                         Image(systemName: "backward.fill")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: 12.5, weight: .bold))
                             .foregroundStyle(primary)
-                            .frame(width: 30, height: 30)
+                            .frame(width: 28, height: 28)
                             .background(subtleFill, in: Circle())
                     }
                     .buttonStyle(.plain)
 
-                    Button {
-                        controller.togglePlayPause()
-                    } label: {
+                    Button { controller.togglePlayPause() } label: {
                         Image(systemName: controller.isPlayingMusic ? "pause.fill" : "play.fill")
-                            .font(.system(size: 14, weight: .black))
+                            .font(.system(size: 13.5, weight: .black))
                             .foregroundStyle(primary)
-                            .frame(width: 34, height: 34)
+                            .frame(width: 32, height: 32)
                             .background(prominentFill, in: Circle())
                     }
                     .buttonStyle(.plain)
 
-                    Button {
-                        controller.nextTrack()
-                    } label: {
+                    Button { controller.nextTrack() } label: {
                         Image(systemName: "forward.fill")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: 12.5, weight: .bold))
                             .foregroundStyle(primary)
-                            .frame(width: 30, height: 30)
+                            .frame(width: 28, height: 28)
                             .background(subtleFill, in: Circle())
                     }
                     .buttonStyle(.plain)
 
-                    Button {
-                        HapticsManager.shared.tapLight()
-                        controller.showMusicCard = false
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(secondary)
-                            .frame(width: 24, height: 24)
-                            .background(subtleFill, in: Circle())
+                    CardPinButton(
+                        isPinned: controller.pinnedMusic,
+                        primary: primary,
+                        subtleFill: subtleFill
+                    ) {
+                        controller.togglePin(for: .musicBeat)
                     }
-                    .buttonStyle(.plain)
                 }
             }
 
@@ -218,15 +294,9 @@ struct MusicPlayerCardOverlay: View {
                             .onChanged { val in
                                 let next = min(max(Double(val.location.x / fullW), 0.0), 0.999)
                                 controller.trackProgress = next
-                                HapticsManager.shared.sliderTick(
-                                    normalized: next,
-                                    buckets: 20,
-                                    lastBucket: &lastScrubBucket
-                                )
+                                HapticsManager.shared.sliderTick(normalized: next, buckets: 20, lastBucket: &lastScrubBucket)
                             }
-                            .onEnded { _ in
-                                lastScrubBucket = -1
-                            }
+                            .onEnded { _ in lastScrubBucket = -1 }
                     )
                 }
                 .frame(height: 16)
@@ -236,19 +306,59 @@ struct MusicPlayerCardOverlay: View {
                     .foregroundStyle(secondary)
                     .frame(width: 36, alignment: .trailing)
             }
+
+            // 4 Interactive Liquid Synth Beat Pads (Launch GPU Refractive Ripples!)
+            HStack(spacing: 7) {
+                ForEach(BeatPadItem.pads) { pad in
+                    let isBouncing = (activePadBounce == pad.id)
+                    Button {
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.45)) {
+                            activePadBounce = pad.id
+                        }
+                        let padX = controller.musicCardCenter.x + CGFloat(pad.id - 1) * 72.0 - 36.0
+                        controller.triggerBeatPad(
+                            index: pad.id,
+                            screenPoint: CGPoint(x: padX, y: controller.musicCardCenter.y + 52)
+                        )
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.6)) {
+                                if activePadBounce == pad.id { activePadBounce = -1 }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: pad.icon)
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(pad.color)
+                            Text(pad.name)
+                                .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                .foregroundStyle(primary)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .fill(isBouncing ? pad.color.opacity(0.38) : subtleFill)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .strokeBorder(pad.color.opacity(isBouncing ? 0.9 : 0.28), lineWidth: 0.9)
+                        )
+                        .scaleEffect(isBouncing ? 1.10 : 1.0)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .frame(width: cardWidth, height: 114)
-        .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .frame(width: cardWidth, height: 176)
+        .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .gesture(
             DragGesture(minimumDistance: 8, coordinateSpace: .named("screen"))
-                .onChanged { value in
-                    controller.updateMusicCardDrag(translation: value.translation, velocity: value.velocity)
-                }
-                .onEnded { value in
-                    controller.endMusicCardDrag(velocity: value.velocity)
-                }
+                .onChanged { val in controller.updateMusicCardDrag(translation: val.translation, velocity: val.velocity) }
+                .onEnded { val in controller.endMusicCardDrag(velocity: val.velocity) }
         )
     }
 
@@ -258,7 +368,6 @@ struct MusicPlayerCardOverlay: View {
     }
 }
 
-/// Self-contained 30Hz audio spectrum leaf view so animated bars never invalidate parent layout.
 struct AudioSpectrumBarsView: View {
     let isPlaying: Bool
 
@@ -270,7 +379,7 @@ struct AudioSpectrumBarsView: View {
                     let phase = t * (4.8 + Double(idx) * 1.15) + Double(idx) * 0.9
                     let level = isPlaying ? (0.32 + 0.68 * abs(sin(phase))) : 0.24
                     Capsule()
-                        .fill(.white.opacity(0.95))
+                        .fill(Color.white.opacity(0.95))
                         .frame(width: 3.5, height: CGFloat(8.0 + 16.0 * level))
                 }
             }
@@ -278,10 +387,10 @@ struct AudioSpectrumBarsView: View {
     }
 }
 
-// MARK: - Mini Control Center Liquid Glass Card
+// MARK: - Zone 2: Native Liquid Control Hub (With Jelly Magnifying Switches)
 
 struct MiniControlCenterOverlay: View {
-    let controller: GlassSceneController
+    @Bindable var controller: GlassSceneController
     let cardWidth: CGFloat
 
     @State private var lastBrightnessBucket: Int = -1
@@ -291,30 +400,24 @@ struct MiniControlCenterOverlay: View {
         let secondary = controller.tintMode.secondaryTextColor(over: controller.wallpaper)
         let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
 
-        VStack(spacing: 12) {
-            // Header Drag Handle + Title + Collapse
+        VStack(spacing: 10) {
             HStack {
-                Label("迷你控制中心", systemImage: "switch.2")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                Label("液態控制中樞", systemImage: "switch.2")
+                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
                     .foregroundStyle(primary)
                 Spacer()
-                Text("可拖曳")
+                Text("可自由拖曳")
                     .font(.system(size: 10.5, weight: .medium, design: .rounded))
                     .foregroundStyle(secondary)
-                Button {
-                    HapticsManager.shared.tapLight()
-                    controller.showControlCenter = false
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .foregroundStyle(secondary)
-                        .frame(width: 24, height: 24)
-                        .background(subtleFill, in: Circle())
+                CardPinButton(
+                    isPinned: controller.pinnedControl,
+                    primary: primary,
+                    subtleFill: subtleFill
+                ) {
+                    controller.togglePin(for: .controlHub)
                 }
-                .buttonStyle(.plain)
             }
 
-            // 4 Interactive Control Tiles
             HStack(spacing: 8) {
                 controlTile(
                     icon: controller.flashlightOn ? "flashlight.on.fill" : "flashlight.off.fill",
@@ -340,22 +443,21 @@ struct MiniControlCenterOverlay: View {
                 }
 
                 controlTile(
-                    icon: controller.frost > 1.2 ? "aqi.medium" : "drop.halffull",
-                    title: controller.frost > 1.2 ? "柔霧" : "清透",
-                    isActive: controller.frost > 1.2,
-                    activeColor: Color(red: 0.36, green: 0.68, blue: 1.0),
+                    icon: "arrow.down.circle.fill",
+                    title: "重力場",
+                    isActive: controller.gravityModeEnabled,
+                    activeColor: Color(red: 0.36, green: 0.72, blue: 1.0),
                     primary: primary,
                     subtleFill: subtleFill
                 ) {
-                    controller.frost = controller.frost > 1.2 ? 0.25 : 2.10
-                    HapticsManager.shared.selection()
+                    controller.gravityModeEnabled.toggle()
                 }
 
                 controlTile(
                     icon: "iphone.radiowaves.left.and.right",
                     title: "觸覺",
                     isActive: controller.hapticsEnabled,
-                    activeColor: Color(red: 0.96, green: 0.36, blue: 0.62),
+                    activeColor: Color(red: 0.96, green: 0.38, blue: 0.64),
                     primary: primary,
                     subtleFill: subtleFill
                 ) {
@@ -363,7 +465,23 @@ struct MiniControlCenterOverlay: View {
                 }
             }
 
-            // Apple Control-Center-Style Glowing Capsule Brightness Slider
+            // Native iOS 26 Jelly Magnifying Toggle Switches
+            VStack(spacing: 6) {
+                LiquidJellyToggle(
+                    title: "雙水滴液態融合 (Metaball)",
+                    icon: "drop.degreesign.fill",
+                    isOn: $controller.metaballFusionEnabled,
+                    primaryColor: primary
+                )
+                LiquidJellyToggle(
+                    title: "超亮稜鏡邊緣光 (Prism Rim)",
+                    icon: "sparkle.magnifyingglass",
+                    isOn: $controller.prismRimBoostEnabled,
+                    primaryColor: primary
+                )
+            }
+
+            // Glowing Capsule Environment Brightness Bar
             GeometryReader { geo in
                 let fullW = max(1, geo.size.width)
                 let minB = 0.45
@@ -371,16 +489,11 @@ struct MiniControlCenterOverlay: View {
                 let norm = min(max((controller.sceneBrightness - minB) / (maxB - minB), 0.0), 1.0)
 
                 ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(subtleFill)
-
+                    Capsule().fill(subtleFill)
                     Capsule()
                         .fill(
                             LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.45),
-                                    Color(red: 1.0, green: 0.92, blue: 0.68).opacity(0.68)
-                                ],
+                                colors: [Color.white.opacity(0.42), Color(red: 1.0, green: 0.92, blue: 0.68).opacity(0.68)],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -408,31 +521,21 @@ struct MiniControlCenterOverlay: View {
                         .onChanged { val in
                             let ratio = min(max(Double(val.location.x / fullW), 0.0), 1.0)
                             controller.sceneBrightness = minB + ratio * (maxB - minB)
-                            HapticsManager.shared.sliderTick(
-                                normalized: ratio,
-                                buckets: 16,
-                                lastBucket: &lastBrightnessBucket
-                            )
+                            HapticsManager.shared.sliderTick(normalized: ratio, buckets: 16, lastBucket: &lastBrightnessBucket)
                         }
-                        .onEnded { _ in
-                            lastBrightnessBucket = -1
-                        }
+                        .onEnded { _ in lastBrightnessBucket = -1 }
                 )
             }
-            .frame(height: 34)
+            .frame(height: 32)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .frame(width: cardWidth, height: 168)
+        .frame(width: cardWidth, height: 224)
         .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .gesture(
             DragGesture(minimumDistance: 8, coordinateSpace: .named("screen"))
-                .onChanged { value in
-                    controller.updateControlCardDrag(translation: value.translation, velocity: value.velocity)
-                }
-                .onEnded { value in
-                    controller.endControlCardDrag(velocity: value.velocity)
-                }
+                .onChanged { val in controller.updateControlCardDrag(translation: val.translation, velocity: val.velocity) }
+                .onEnded { val in controller.endControlCardDrag(velocity: val.velocity) }
         )
     }
 
@@ -446,19 +549,19 @@ struct MiniControlCenterOverlay: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 5) {
+            VStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 14.5, weight: .bold))
                     .foregroundStyle(isActive ? Color(red: 0.06, green: 0.08, blue: 0.14) : primary)
                 Text(title)
-                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(isActive ? Color(red: 0.06, green: 0.08, blue: 0.14) : primary.opacity(0.85))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 56)
+            .frame(height: 50)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
                     .fill(isActive ? activeColor : subtleFill)
             )
         }
@@ -466,17 +569,108 @@ struct MiniControlCenterOverlay: View {
     }
 }
 
-// MARK: - Collapsible Optical & Wallpaper Studio Drawer
+// MARK: - Zone 3: Spatial Weather & 24h Solar Arc Liquid Glass Card
+
+struct WeatherSolarCardOverlay: View {
+    @Bindable var controller: GlassSceneController
+    let cardWidth: CGFloat
+
+    var body: some View {
+        let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
+        let secondary = controller.tintMode.secondaryTextColor(over: controller.wallpaper)
+        let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
+        let cond = controller.weatherCondition
+        let tempOffset = Int((sin((controller.solarHour - 9.0) / 24.0 * 2.0 * .pi) * 4.0).rounded())
+        let displayTemp = cond.baseTemp + tempOffset
+
+        VStack(spacing: 11) {
+            HStack(alignment: .center) {
+                HStack(spacing: 10) {
+                    Image(systemName: isNightHour ? "moon.stars.fill" : cond.icon)
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(isNightHour ? Color.cyan : Color(red: 1.0, green: 0.80, blue: 0.28))
+                        .frame(width: 36)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(displayTemp)° · \(cond.title)")
+                            .font(.system(size: 18, weight: .black, design: .rounded))
+                            .foregroundStyle(primary)
+                        Text("\(cond.citySubtitle) · 濕度 \(cond.humidity)")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(secondary)
+                    }
+                }
+
+                Spacer()
+
+                CardPinButton(
+                    isPinned: controller.pinnedWeather,
+                    primary: primary,
+                    subtleFill: subtleFill
+                ) {
+                    controller.togglePin(for: .weatherSolar)
+                }
+            }
+
+            // 4 Interactive Weather Condition Pills
+            HStack(spacing: 6) {
+                ForEach(WeatherCondition.allCases) { item in
+                    let selected = (controller.weatherCondition == item)
+                    Button {
+                        controller.weatherCondition = item
+                        controller.triggerRipple(at: controller.weatherCardCenter, strength: 0.70)
+                        HapticsManager.shared.selection()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: item.icon)
+                                .font(.system(size: 11, weight: .bold))
+                            Text(item.title)
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(selected ? Color.black : primary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                        .background(
+                            selected ? Color.white : subtleFill,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // 24-Hour Solar Horizon Scrubber with Native Jelly Slider Thumb
+            LiquidJellySlider(
+                title: isNightHour ? "星夜時光" : "日照軌跡",
+                value: $controller.solarHour,
+                range: 0.0...23.9,
+                format: "%02.0f:00",
+                primaryColor: primary,
+                secondaryColor: secondary
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(width: cardWidth, height: 196)
+        .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .gesture(
+            DragGesture(minimumDistance: 8, coordinateSpace: .named("screen"))
+                .onChanged { val in controller.updateWeatherCardDrag(translation: val.translation, velocity: val.velocity) }
+                .onEnded { val in controller.endWeatherCardDrag(velocity: val.velocity) }
+        )
+    }
+
+    private var isNightHour: Bool {
+        controller.solarHour < 5.8 || controller.solarHour > 19.2
+    }
+}
+
+// MARK: - Zone 4: Optical & Wallpaper Studio Drawer (With Jelly Magnifier Sliders)
 
 struct StudioDrawerOverlay: View {
     @Bindable var controller: GlassSceneController
     @Binding var selectedPhotoItem: PhotosPickerItem?
     let drawerWidth: CGFloat
-
-    @State private var refBucket: Int = -1
-    @State private var bezBucket: Int = -1
-    @State private var dispBucket: Int = -1
-    @State private var frostBucket: Int = -1
 
     var body: some View {
         let primary: Color = controller.tintMode == .light
@@ -488,7 +682,6 @@ struct StudioDrawerOverlay: View {
             : Color.white.opacity(0.14)
 
         VStack(spacing: 11) {
-            // Header Row
             HStack {
                 Label("光學與材質工作坊", systemImage: "sparkles.rectangle.stack.fill")
                     .font(.system(size: 14, weight: .bold, design: .rounded))
@@ -505,18 +698,15 @@ struct StudioDrawerOverlay: View {
                         .foregroundStyle(controller.showFPS ? Color.black : primary)
                         .padding(.horizontal, 9)
                         .padding(.vertical, 5)
-                        .background(
-                            controller.showFPS ? Color.cyan : pillBg,
-                            in: Capsule()
-                        )
+                        .background(controller.showFPS ? Color.cyan : pillBg, in: Capsule())
                 }
                 .buttonStyle(.plain)
 
                 Button {
                     HapticsManager.shared.tapLight()
-                    controller.showSettingsDrawer = false
+                    controller.selectedTab = .lensLab
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(secondary)
                         .frame(width: 26, height: 26)
@@ -525,7 +715,6 @@ struct StudioDrawerOverlay: View {
                 .buttonStyle(.plain)
             }
 
-            // 4 Wallpapers + Photo Library Picker
             HStack(spacing: 6) {
                 ForEach(WallpaperPreset.builtInPresets) { preset in
                     let selected = controller.wallpaper == preset
@@ -569,7 +758,6 @@ struct StudioDrawerOverlay: View {
                 .buttonStyle(.plain)
             }
 
-            // 3 Glass Material Tints + Optional Photo Typography Toggle
             HStack(spacing: 6) {
                 ForEach(GlassTintMode.allCases) { mode in
                     let isSelected = controller.tintMode == mode
@@ -599,210 +787,70 @@ struct StudioDrawerOverlay: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(controller.showTypographyOnPhoto ? Color.black : primary)
                             .frame(width: 34, height: 30)
-                            .background(
-                                controller.showTypographyOnPhoto ? Color.white : pillBg,
-                                in: Capsule()
-                            )
+                            .background(controller.showTypographyOnPhoto ? Color.white : pillBg, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
 
-            // 4 Optical Parameter Sliders with Haptic Detents
-            VStack(spacing: 7) {
-                opticalSliderRow(
+            // 4 Precision Optical Sliders with Native Jelly Magnifying Thumbs
+            VStack(spacing: 6) {
+                LiquidJellySlider(
                     title: "折射強度",
                     value: $controller.refraction,
                     range: 0...95,
                     format: "%.0f",
-                    primary: primary,
-                    secondary: secondary,
-                    bucket: $refBucket
+                    primaryColor: primary,
+                    secondaryColor: secondary
                 )
-                opticalSliderRow(
+                LiquidJellySlider(
                     title: "倒角寬度",
                     value: $controller.bezel,
                     range: 6...68,
                     format: "%.0f pt",
-                    primary: primary,
-                    secondary: secondary,
-                    bucket: $bezBucket
+                    primaryColor: primary,
+                    secondaryColor: secondary
                 )
-                opticalSliderRow(
+                LiquidJellySlider(
                     title: "彩虹色散",
                     value: $controller.dispersion,
                     range: 0...0.28,
                     format: "%.2f",
-                    primary: primary,
-                    secondary: secondary,
-                    bucket: $dispBucket
+                    primaryColor: primary,
+                    secondaryColor: secondary
                 )
-                opticalSliderRow(
+                LiquidJellySlider(
                     title: "霧面磨砂",
                     value: $controller.frost,
                     range: 0...4.0,
                     format: "%.1f",
-                    primary: primary,
-                    secondary: secondary,
-                    bucket: $frostBucket
+                    primaryColor: primary,
+                    secondaryColor: secondary
                 )
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .frame(width: drawerWidth, height: 352)
-    }
-
-    private func opticalSliderRow(
-        title: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        format: String,
-        primary: Color,
-        secondary: Color,
-        bucket: Binding<Int>
-    ) -> some View {
-        HStack(spacing: 10) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(primary.opacity(0.9))
-                .frame(width: 54, alignment: .leading)
-
-            Slider(value: value, in: range)
-                .tint(.cyan)
-                .onChange(of: value.wrappedValue) { _, newVal in
-                    let norm = (newVal - range.lowerBound) / max(0.0001, range.upperBound - range.lowerBound)
-                    var b = bucket.wrappedValue
-                    HapticsManager.shared.sliderTick(normalized: norm, buckets: 18, lastBucket: &b)
-                    bucket.wrappedValue = b
-                }
-
-            Text(String(format: format, value.wrappedValue))
-                .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(secondary)
-                .frame(width: 48, alignment: .trailing)
-        }
+        .frame(width: drawerWidth, height: 360)
     }
 }
 
-// MARK: - Bottom Floating Liquid Dock
+// MARK: - Shared Card Pin Button
 
-struct FloatingLiquidDockOverlay: View {
-    let controller: GlassSceneController
-    @Binding var selectedPhotoItem: PhotosPickerItem?
-    let dockWidth: CGFloat
+private struct CardPinButton: View {
+    let isPinned: Bool
+    let primary: Color
+    let subtleFill: Color
+    let action: () -> Void
 
     var body: some View {
-        let primary = controller.tintMode.primaryTextColor(over: controller.wallpaper)
-        let subtleFill = controller.tintMode.subtleFillColor(over: controller.wallpaper)
-
-        HStack(spacing: 0) {
-            dockButton(
-                icon: "music.note",
-                label: "音樂卡",
-                isActive: controller.showMusicCard,
-                primary: primary,
-                subtleFill: subtleFill
-            ) {
-                HapticsManager.shared.tapMedium()
-                controller.showMusicCard.toggle()
-            }
-
-            Spacer(minLength: 4)
-
-            dockButton(
-                icon: "switch.2",
-                label: "控制中心",
-                isActive: controller.showControlCenter,
-                primary: primary,
-                subtleFill: subtleFill
-            ) {
-                HapticsManager.shared.tapMedium()
-                controller.showControlCenter.toggle()
-            }
-
-            Spacer(minLength: 4)
-
-            dockButton(
-                icon: "slider.horizontal.3",
-                label: "光學面板",
-                isActive: controller.showSettingsDrawer,
-                primary: primary,
-                subtleFill: subtleFill
-            ) {
-                HapticsManager.shared.tapMedium()
-                controller.showSettingsDrawer.toggle()
-            }
-
-            Spacer(minLength: 4)
-
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
-                dockItemLabel(
-                    icon: "photo.on.rectangle.angled",
-                    label: "匯入相片",
-                    isActive: controller.wallpaper == .customPhoto,
-                    primary: primary,
-                    subtleFill: subtleFill
-                )
-            }
-            .buttonStyle(.plain)
-
-            Spacer(minLength: 4)
-
-            dockButton(
-                icon: "arrow.counterclockwise",
-                label: "重置透鏡",
-                isActive: false,
-                primary: primary,
-                subtleFill: subtleFill
-            ) {
-                controller.resetPlaygroundLayout()
-            }
-        }
-        .padding(.horizontal, 14)
-        .frame(width: dockWidth, height: 68)
-    }
-
-    private func dockButton(
-        icon: String,
-        label: String,
-        isActive: Bool,
-        primary: Color,
-        subtleFill: Color,
-        action: @escaping () -> Void
-    ) -> some View {
         Button(action: action) {
-            dockItemLabel(
-                icon: icon,
-                label: label,
-                isActive: isActive,
-                primary: primary,
-                subtleFill: subtleFill
-            )
+            Image(systemName: isPinned ? "pin.fill" : "pin")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(isPinned ? Color.black : primary.opacity(0.75))
+                .frame(width: 26, height: 26)
+                .background(isPinned ? Color.cyan : subtleFill, in: Circle())
         }
         .buttonStyle(.plain)
-    }
-
-    private func dockItemLabel(
-        icon: String,
-        label: String,
-        isActive: Bool,
-        primary: Color,
-        subtleFill: Color
-    ) -> some View {
-        VStack(spacing: 3) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isActive ? Color.cyan.opacity(0.32) : subtleFill)
-                    .frame(width: 44, height: 36)
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(primary)
-            }
-            Circle()
-                .fill(isActive ? Color.cyan : Color.clear)
-                .frame(width: 4.5, height: 4.5)
-        }
-        .accessibilityLabel(label)
     }
 }

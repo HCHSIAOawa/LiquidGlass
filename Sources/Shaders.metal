@@ -9,13 +9,15 @@ struct SceneUniforms {
     float4 lightingParams;    // x: lightDirX, y: lightDirY, z: tintMode (0..2), w: brightness
     float4 spotlightParams;   // x: originX, y: originY, z: dirX, w: strength (0..1)
     float4 layerFlags;        // x: elementCount, y: hasCustomPhoto, z: photoAspect, w: textOverlayMix
+    float4 rippleParams;      // x: rippleCenterX, y: rippleCenterY, z: rippleRadiusPt, w: rippleStrength
+    float4 atmosphereParams;  // x: solarWarmth (-1..1), y: globalRimBoost, z: fusionK (pt), w: reserved
 };
 
 struct GlassElementUniform {
     float4 centerAndHalfSize; // xy: centerPt, zw: halfSizePt
     float4 shapeAndTransform; // x: cornerRadiusPt, y: stretchAngleRad, z: stretchFactor, w: rimBoost
     float4 styleParams;       // x: opacity, y: refractionScale, z: frostBoost, w: shadowElevation
-    float4 tintOverride;      // xyz: accentRGB, w: accentStrength
+    float4 tintOverride;      // xyz: accentRGB, w: accentStrength (-1.0f = Metaball Fusion Pair leader)
 };
 
 struct VertexOut {
@@ -79,13 +81,11 @@ static inline float3 wallpaperRainbowStripes(float2 uv, float aspect, float t) {
     float wave = sin(p.y * 4.5f + t * 0.55f) * 0.065f;
     float coord = (p.x * 0.86f + p.y * 0.50f + wave) * 5.6f - t * 0.28f;
 
-    // Cosine chromatic palette + crisp architectural sub-bands
     float3 pal = 0.54f + 0.44f * cos(6.2831853f * (coord * 0.22f + float3(0.00f, 0.33f, 0.67f)));
     float band = fract(coord);
     float crispEdge = smoothstep(0.0f, 0.06f, band) * smoothstep(1.0f, 0.94f, band);
     float3 deepAccent = pal * (0.72f + 0.32f * crispEdge);
 
-    // Subtle dark vignette for glass contrast
     float vig = 1.0f - 0.24f * dot(p, p);
     return clamp(deepAccent * vig, 0.0f, 1.0f);
 }
@@ -102,7 +102,6 @@ static inline float3 wallpaperSunsetRings(float2 uv, float aspect, float t) {
         ? mix(skyTop, skyMid, clamp(uv.y / 0.52f, 0.0f, 1.0f))
         : mix(skyMid, skyBot, clamp((uv.y - 0.52f) / 0.48f, 0.0f, 1.0f));
 
-    // Concentric optical rings that bend dramatically through convex glass
     float ringPhase = r * 26.0f - t * 0.85f;
     float rings = sin(ringPhase);
     float sharpRing = smoothstep(0.55f, 0.96f, rings);
@@ -111,7 +110,6 @@ static inline float3 wallpaperSunsetRings(float2 uv, float aspect, float t) {
     float3 ringColor = mix(float3(1.0f, 0.76f, 0.34f), float3(1.0f, 0.95f, 0.80f), sunCore);
     float3 col = grad + ringColor * (sharpRing * 0.34f * exp(-r * 1.6f) + sunCore * 0.55f);
 
-    // Horizon reflection bars in lower third
     if (p.y > 0.14f) {
         float waterStripe = sin((p.y - 0.14f) * 95.0f + sin(p.x * 18.0f + t * 1.4f) * 1.8f);
         float reflectMask = exp(-abs(p.x) * 3.6f) * smoothstep(0.14f, 0.24f, p.y);
@@ -129,7 +127,6 @@ static inline float3 wallpaperMinimalGrid(float2 posPt, float2 viewport, float f
         clamp(uv.y * 0.85f + uv.x * 0.15f, 0.0f, 1.0f)
     );
 
-    // Analytical anti-aliased grid lines (softens naturally with frostBlur)
     float aa = 0.85f + frostBlur * 1.8f;
 
     float2 minorDist = abs(fract(posPt / 24.0f + 0.5f) - 0.5f) * 24.0f;
@@ -138,8 +135,7 @@ static inline float3 wallpaperMinimalGrid(float2 posPt, float2 viewport, float f
     float2 majorDist = abs(fract(posPt / 120.0f + 0.5f) - 0.5f) * 120.0f;
     float majorLine = 1.0f - smoothstep(0.85f, 0.85f + aa, min(majorDist.x, majorDist.y));
 
-    // Subtle colored optical calibration crosshairs near center
-    float2 centerDist = abs(posPt - viewport * float2(0.5f, 0.44f));
+    float2 centerDist = abs(posPt - viewport * float2(0.5f, 0.48f));
     float axisLineX = 1.0f - smoothstep(0.7f, 0.7f + aa, centerDist.x);
     float axisLineY = 1.0f - smoothstep(0.7f, 0.7f + aa, centerDist.y);
 
@@ -151,10 +147,28 @@ static inline float3 wallpaperMinimalGrid(float2 posPt, float2 viewport, float f
     return col;
 }
 
+// MARK: - Interactive Water Shockwave Ripple Displacement
+
+static inline float2 applyShockwaveRipple(float2 samplePt, constant SceneUniforms &scene) {
+    float strength = scene.rippleParams.w;
+    if (strength <= 0.002f) {
+        return samplePt;
+    }
+    float2 delta = samplePt - scene.rippleParams.xy;
+    float dist = length(delta);
+    float ringDist = dist - scene.rippleParams.z;
+    if (abs(ringDist) > 48.0f || dist < 1.0f) {
+        return samplePt;
+    }
+    float envelope = exp(- (ringDist * ringDist) * 0.0028f) * strength;
+    float wave = sin(ringDist * 0.22f) * envelope * 22.0f;
+    return samplePt + (delta / dist) * wave;
+}
+
 // MARK: - Composite Background + UV-Scrolled Typography Texture + Custom Photo
 
 static inline float3 sampleSceneBackground(
-    float2 samplePt,
+    float2 rawSamplePt,
     float frostAmount,
     constant SceneUniforms &scene,
     texture2d<float, access::sample> textTex,
@@ -163,6 +177,7 @@ static inline float3 sampleSceneBackground(
     constexpr sampler repeatSampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear);
     constexpr sampler clampSampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear);
 
+    float2 samplePt = applyShockwaveRipple(rawSamplePt, scene);
     float2 viewport = max(scene.viewportAndTime.xy, float2(1.0f));
     float time = scene.viewportAndTime.z;
     int mode = int(scene.viewportAndTime.w + 0.5f);
@@ -172,7 +187,6 @@ static inline float3 sampleSceneBackground(
 
     float3 bg;
     if (mode == 4 && scene.layerFlags.y > 0.5f) {
-        // Aspect-fill custom photo UV mapping
         float photoAspect = max(scene.layerFlags.z, 0.05f);
         float2 photoUV = uv - 0.5f;
         if (aspect > photoAspect) {
@@ -192,11 +206,9 @@ static inline float3 sampleSceneBackground(
         bg = wallpaperAurora(uv, aspect, time);
     }
 
-    // Pre-rendered static typography texture with per-row alternating UV scroll at -8 degrees
     float textMix = scene.layerFlags.w;
     if (textMix > 0.01f) {
         float2 centered = samplePt - viewport * 0.5f;
-        // -8 deg rotation: cos(-8°) = 0.990268f, sin(-8°) = -0.139173f
         float2 rotated = float2(
             centered.x * 0.990268f - centered.y * (-0.139173f),
             centered.x * (-0.139173f) + centered.y * 0.990268f
@@ -208,15 +220,22 @@ static inline float3 sampleSceneBackground(
 
         float4 txt = textTex.sample(repeatSampler, tileUV, level(mipLod));
         if (mode == 3) {
-            // Dark editorial ink typography on bright minimal grid paper (txt is premultiplied RGBA)
             float3 inkColor = ((rowIdx & 1) == 0)
                 ? float3(0.09f, 0.12f, 0.20f)
                 : float3(0.08f, 0.44f, 0.68f);
             bg = mix(bg, inkColor, txt.a * 0.86f * textMix);
         } else {
-            // Premultiplied-alpha composite prevents mipmap fringe halos
             bg = bg * (1.0f - txt.a * textMix) + txt.rgb * textMix;
         }
+    }
+
+    // Apply optional Spatial Weather solar hour color temperature shift
+    float warmth = scene.atmosphereParams.x;
+    if (abs(warmth) > 0.01f) {
+        float3 tint = warmth > 0.0f
+            ? mix(float3(1.0f), float3(1.12f, 0.94f, 0.78f), warmth)
+            : mix(float3(1.0f), float3(0.78f, 0.88f, 1.14f), -warmth);
+        bg *= tint;
     }
 
     return bg * scene.lightingParams.w;
@@ -241,8 +260,6 @@ static inline float3 sampleFrostedRefraction(
         return float3(r, g, b);
     }
 
-    // Hardware trilinear mipmaps handle high-frequency blur; a rotated 4-tap Poisson kernel
-    // blurs procedural backgrounds smoothly with 6 total taps instead of 15.
     float radius = frost * 2.6f;
     float jitterAngle = (hash12(pixelSeed) - 0.5f) * 0.35f + 0.48f;
     float cs = cos(jitterAngle);
@@ -297,13 +314,11 @@ static inline float3 sdAndNormalDeformedBox(
     float lenW = length(w);
     float sd = min(max(q.x, q.y), 0.0f) + lenW - rr;
 
-    // Smooth crease-free outward normal in local space, then transformed by symmetric M
     float2 signs = float2(p.x >= 0.0f ? 1.0f : -1.0f, p.y >= 0.0f ? 1.0f : -1.0f);
     float2 localN;
     if (lenW > 1e-3f) {
         localN = signs * (w / lenW);
     } else {
-        // Smooth meniscus gradient inside flat core without 45-degree creases
         float2 edgeProx = exp(q * 0.18f);
         float2 rawN = signs * edgeProx;
         float rawLen = length(rawN);
@@ -316,7 +331,7 @@ static inline float3 sdAndNormalDeformedBox(
     return float3(sd, n.x, n.y);
 }
 
-// MARK: - Volumetric Spotlight Cone (Mini Control Center Flashlight)
+// MARK: - Volumetric Spotlight Cone
 
 static inline float evaluateSpotlight(float2 posPt, constant SceneUniforms &scene) {
     float strength = scene.spotlightParams.w;
@@ -346,8 +361,17 @@ fragment float4 liquidGlassFragment(
     float2 viewport = max(scene.viewportAndTime.xy, float2(1.0f));
     float2 posPt = in.uv * viewport;
 
-    // 1. Base procedural/photo wallpaper + UV-scrolled typography
+    // 1. Base procedural/photo wallpaper + UV-scrolled typography + water ripple
     float3 color = sampleSceneBackground(posPt, 0.0f, scene, textTex, photoTex);
+
+    // Subtle specular ring highlight along expanding water shockwave
+    if (scene.rippleParams.w > 0.005f) {
+        float rDist = abs(length(posPt - scene.rippleParams.xy) - scene.rippleParams.z);
+        if (rDist < 24.0f) {
+            float ringGlow = exp(-rDist * 0.16f) * scene.rippleParams.w * 0.35f;
+            color += float3(0.82f, 0.96f, 1.0f) * ringGlow;
+        }
+    }
 
     // 2. Optional Mini Control Center volumetric spotlight beam
     float spotVal = evaluateSpotlight(posPt, scene);
@@ -355,7 +379,6 @@ fragment float4 liquidGlassFragment(
         color += float3(0.94f, 0.97f, 1.0f) * (spotVal * 0.48f);
     }
 
-    // Global optical & lighting parameters
     float globalRefraction = scene.opticalParams.x;
     float globalBezel = scene.opticalParams.y;
     float globalDispersion = scene.opticalParams.z;
@@ -366,10 +389,12 @@ fragment float4 liquidGlassFragment(
     float2 lightDir = lLen > 1e-3f ? (rawLightDir / lLen) : float2(-0.58f, -0.81f);
     int tintMode = int(scene.lightingParams.z + 0.5f);
     int wallpaperMode = int(scene.viewportAndTime.w + 0.5f);
+    float globalRimScale = max(0.8f, scene.atmosphereParams.y);
+    float fusionK = max(4.0f, scene.atmosphereParams.z);
 
-    int elemCount = clamp(int(scene.layerFlags.x + 0.5f), 0, 8);
+    int elemCount = clamp(int(scene.layerFlags.x + 0.5f), 0, 12);
 
-    // 3. Single-pass multi-glass evaluation (back-to-front order)
+    // 3. Single-pass multi-glass evaluation (supports analytical Smooth-Min Metaball Fusion!)
     for (int i = 0; i < elemCount; ++i) {
         GlassElementUniform elem = elements[i];
         float elemOpacity = elem.styleParams.x;
@@ -377,43 +402,120 @@ fragment float4 liquidGlassFragment(
             continue;
         }
 
-        float2 center = elem.centerAndHalfSize.xy;
-        float2 halfSize = max(elem.centerAndHalfSize.zw, float2(4.0f));
-        float2 rel = posPt - center;
+        bool isMetaballLeader = (elem.tintOverride.w < -0.5f) && ((i + 1) < elemCount);
 
-        float stretch = clamp(elem.shapeAndTransform.z, 0.65f, 1.45f);
-        float maxScale = max(stretch, 1.0f / stretch);
-        float maxExtent = max(halfSize.x, halfSize.y) * maxScale + 48.0f;
+        float sd;
+        float2 n;
+        float2 domeNorm;
+        float minDim;
+        float elevation;
+        float refScale;
+        float frostBoost;
+        float rimBoost;
+        float3 accentRGB = elem.tintOverride.xyz;
+        float accentStrength = max(0.0f, elem.tintOverride.w);
 
-        // Ultra-fast AABB early-out skips 80%+ of screen pixels in 2 comparisons
-        if (abs(rel.x) > maxExtent || abs(rel.y) > maxExtent) {
-            continue;
-        }
+        if (isMetaballLeader) {
+            GlassElementUniform elemB = elements[i + 1];
+            i += 1; // Consume companion droplet in unified liquid fusion pass
 
-        float radius = elem.shapeAndTransform.x;
-        float angle = elem.shapeAndTransform.y;
-        float2 uDir = float2(cos(angle), sin(angle));
-        float elevation = elem.styleParams.w;
+            float2 cA = elem.centerAndHalfSize.xy;
+            float2 hsA = max(elem.centerAndHalfSize.zw, float2(4.0f));
+            float2 relA = posPt - cA;
+            float strA = clamp(elem.shapeAndTransform.z, 0.65f, 1.48f);
+            float extA = max(hsA.x, hsA.y) * max(strA, 1.0f / strA) + 64.0f;
 
-        float3 sdn = sdAndNormalDeformedBox(rel, halfSize, radius, uDir, stretch);
-        float sd = sdn.x;
+            float2 cB = elemB.centerAndHalfSize.xy;
+            float2 hsB = max(elemB.centerAndHalfSize.zw, float2(4.0f));
+            float2 relB = posPt - cB;
+            float strB = clamp(elemB.shapeAndTransform.z, 0.65f, 1.48f);
+            float extB = max(hsB.x, hsB.y) * max(strB, 1.0f / strB) + 64.0f;
 
-        // Soft dual-layer drop shadow + clear-glass caustic glow outside silhouette
-        if (sd > -0.5f && elevation > 0.01f) {
-            float2 shadowOffset = -lightDir * (8.0f * elevation) + float2(0.0f, 9.0f * elevation);
-            float2 relShadow = applyLiquidDeform(rel - shadowOffset, uDir, stretch);
-            float shadowSD = sdRoundBox(relShadow, halfSize, radius);
+            bool inA = (abs(relA.x) <= extA && abs(relA.y) <= extA);
+            bool inB = (abs(relB.x) <= extB && abs(relB.y) <= extB);
+            if (!inA && !inB) {
+                continue;
+            }
 
-            if (shadowSD > -4.0f && shadowSD < 42.0f) {
-                float ambient = exp(-max(0.0f, sd) * 0.24f) * 0.16f;
-                float drop = exp(-max(0.0f, shadowSD) * (0.085f / max(elevation, 0.5f))) * 0.30f;
-                float totalShadow = clamp((ambient + drop) * elemOpacity * elevation, 0.0f, 0.52f);
-                color *= (1.0f - totalShadow);
+            float2 uA = float2(cos(elem.shapeAndTransform.y), sin(elem.shapeAndTransform.y));
+            float2 uB = float2(cos(elemB.shapeAndTransform.y), sin(elemB.shapeAndTransform.y));
 
-                // Subtle focused caustic brightening inside shadow for Clear glass
-                if (tintMode == 0 && shadowSD > -2.0f && shadowSD < 14.0f) {
-                    float caustic = exp(-abs(shadowSD - 3.5f) * 0.28f) * 0.09f * elemOpacity;
-                    color += float3(0.85f, 0.95f, 1.0f) * caustic;
+            float3 sdnA = sdAndNormalDeformedBox(relA, hsA, elem.shapeAndTransform.x, uA, strA);
+            float3 sdnB = sdAndNormalDeformedBox(relB, hsB, elemB.shapeAndTransform.x, uB, strB);
+
+            float k = fusionK * clamp(elemB.styleParams.x, 0.0f, 1.0f);
+            float h = clamp(0.5f + 0.5f * (sdnB.x - sdnA.x) / max(k, 0.01f), 0.0f, 1.0f);
+            sd = mix(sdnB.x, sdnA.x, h) - k * h * (1.0f - h);
+
+            float2 blendedN = mix(sdnB.yz, sdnA.yz, h);
+            float nLen = length(blendedN);
+            n = nLen > 1e-4f ? (blendedN / nLen) : float2(0.0f, -1.0f);
+
+            domeNorm = mix(relB / hsB, relA / hsA, h);
+            minDim = mix(min(hsB.x, hsB.y), min(hsA.x, hsA.y), h);
+            elevation = mix(elemB.styleParams.w, elem.styleParams.w, h);
+            refScale = mix(elemB.styleParams.y, elem.styleParams.y, h);
+            frostBoost = mix(elemB.styleParams.z, elem.styleParams.z, h);
+            rimBoost = mix(elemB.shapeAndTransform.w, elem.shapeAndTransform.w, h);
+
+            // Unified metaball shadow + clear caustic glow
+            if (sd > -0.5f && sd < 42.0f) {
+                float2 shOff = -lightDir * (8.0f * elevation) + float2(0.0f, 9.0f * elevation);
+                float shA = sdRoundBox(applyLiquidDeform(relA - shOff, uA, strA), hsA, elem.shapeAndTransform.x);
+                float shB = sdRoundBox(applyLiquidDeform(relB - shOff, uB, strB), hsB, elemB.shapeAndTransform.x);
+                float hh = clamp(0.5f + 0.5f * (shB - shA) / max(k, 0.01f), 0.0f, 1.0f);
+                float shadowSD = mix(shB, shA, hh) - k * hh * (1.0f - hh);
+                if (shadowSD > -4.0f && shadowSD < 42.0f) {
+                    float ambient = exp(-max(0.0f, sd) * 0.24f) * 0.16f;
+                    float drop = exp(-max(0.0f, shadowSD) * 0.085f) * 0.30f;
+                    color *= (1.0f - clamp((ambient + drop) * elemOpacity, 0.0f, 0.50f));
+                    if (tintMode == 0 && shadowSD > -2.0f && shadowSD < 14.0f) {
+                        color += float3(0.85f, 0.96f, 1.0f) * (exp(-abs(shadowSD - 3.5f) * 0.28f) * 0.10f);
+                    }
+                }
+            }
+        } else {
+            float2 center = elem.centerAndHalfSize.xy;
+            float2 halfSize = max(elem.centerAndHalfSize.zw, float2(4.0f));
+            float2 rel = posPt - center;
+
+            float stretch = clamp(elem.shapeAndTransform.z, 0.60f, 1.55f);
+            float maxScale = max(stretch, 1.0f / stretch);
+            float maxExtent = max(halfSize.x, halfSize.y) * maxScale + 48.0f;
+
+            if (abs(rel.x) > maxExtent || abs(rel.y) > maxExtent) {
+                continue;
+            }
+
+            float radius = elem.shapeAndTransform.x;
+            float angle = elem.shapeAndTransform.y;
+            float2 uDir = float2(cos(angle), sin(angle));
+            elevation = elem.styleParams.w;
+
+            float3 sdn = sdAndNormalDeformedBox(rel, halfSize, radius, uDir, stretch);
+            sd = sdn.x;
+            n = sdn.yz;
+            domeNorm = rel / max(halfSize, float2(1.0f));
+            minDim = min(halfSize.x, halfSize.y);
+            refScale = elem.styleParams.y;
+            frostBoost = elem.styleParams.z;
+            rimBoost = elem.shapeAndTransform.w;
+
+            if (sd > -0.5f && elevation > 0.01f) {
+                float2 shadowOffset = -lightDir * (8.0f * elevation) + float2(0.0f, 9.0f * elevation);
+                float2 relShadow = applyLiquidDeform(rel - shadowOffset, uDir, stretch);
+                float shadowSD = sdRoundBox(relShadow, halfSize, radius);
+
+                if (shadowSD > -4.0f && shadowSD < 42.0f) {
+                    float ambient = exp(-max(0.0f, sd) * 0.24f) * 0.16f;
+                    float drop = exp(-max(0.0f, shadowSD) * (0.085f / max(elevation, 0.5f))) * 0.30f;
+                    float totalShadow = clamp((ambient + drop) * elemOpacity * elevation, 0.0f, 0.52f);
+                    color *= (1.0f - totalShadow);
+
+                    if (tintMode == 0 && shadowSD > -2.0f && shadowSD < 14.0f) {
+                        float caustic = exp(-abs(shadowSD - 3.5f) * 0.28f) * 0.09f * elemOpacity;
+                        color += float3(0.85f, 0.95f, 1.0f) * caustic;
+                    }
                 }
             }
         }
@@ -422,37 +524,34 @@ fragment float4 liquidGlassFragment(
             continue;
         }
 
-        float2 n = sdn.yz;
         float dist = max(0.0f, -sd);
 
         // Dual-zone meniscus bevel + gentle spherical dome magnification
-        float minDim = min(halfSize.x, halfSize.y);
         float bz = clamp(globalBezel, 4.0f, max(5.0f, minDim * 0.92f));
         float t = clamp(dist / bz, 0.0f, 1.0f);
         float meniscus = pow(1.0f - t, 2.35f);
-        float2 domeNorm = rel / max(halfSize, float2(1.0f));
 
-        float refStrength = globalRefraction * elem.styleParams.y;
-        float2 dispVec = (-n * meniscus * 0.78f - domeNorm * 0.22f) * refStrength;
+        float refStrength = globalRefraction * refScale;
+        float2 dispVec = (-n * meniscus * 0.76f - domeNorm * 0.26f) * refStrength;
 
-        // Symmetric RGB chromatic dispersion around Green channel
-        float disp = globalDispersion * (0.45f + 0.85f * meniscus);
+        float disp = globalDispersion * (0.48f + 0.88f * meniscus);
         float2 posR = posPt + dispVec * (1.0f + disp);
         float2 posG = posPt + dispVec;
         float2 posB = posPt + dispVec * (1.0f - disp);
 
-        float totalFrost = clamp(globalFrost + elem.styleParams.z, 0.0f, 4.5f);
+        float totalFrost = clamp(globalFrost + frostBoost, 0.0f, 4.5f);
         float3 refracted = sampleFrostedRefraction(
             posR, posG, posB, totalFrost, in.position.xy, scene, textTex, photoTex
         );
 
-        // Boost internal optical chroma vibrancy
         float luma = dot(refracted, float3(0.2126f, 0.7152f, 0.0722f));
-        float satFactor = (tintMode == 0) ? 1.40f : 1.24f;
+        float satFactor = (tintMode == 0 || frostBoost < -1.0f) ? 1.42f : 1.24f;
         refracted = clamp(mix(float3(luma), refracted, satFactor), 0.0f, 1.2f);
 
-        // Material tint modes: 0 = Clear, 1 = Light, 2 = Dark
-        if (tintMode == 1) {
+        // Material tint modes (crystal magnifying droplets with negative frostBoost stay ultra-clear!)
+        if (frostBoost < -1.5f) {
+            refracted = mix(refracted, float3(0.96f, 0.99f, 1.0f), 0.06f);
+        } else if (tintMode == 1) {
             float lightMix = (wallpaperMode == 3) ? 0.42f : 0.30f;
             refracted = mix(refracted, float3(0.95f, 0.97f, 1.0f), lightMix);
         } else if (tintMode == 2) {
@@ -461,30 +560,26 @@ fragment float4 liquidGlassFragment(
             refracted = mix(refracted, float3(0.96f, 0.98f, 1.0f), 0.05f);
         }
 
-        // Per-card subtle dynamic accent tint (e.g., playing album aura or flashlight glow)
-        if (elem.tintOverride.w > 0.005f) {
+        if (accentStrength > 0.005f) {
             float accentFalloff = smoothstep(minDim * 1.2f, 0.0f, dist) * 0.65f + 0.35f;
-            refracted = mix(refracted, elem.tintOverride.xyz, elem.tintOverride.w * accentFalloff);
+            refracted = mix(refracted, accentRGB, accentStrength * accentFalloff);
         }
 
-        // Dual-layer gyro Fresnel specular rim + internal bevel sheen
         float primaryLight = max(0.0f, dot(n, lightDir));
         float secondaryBounce = max(0.0f, dot(n, -lightDir));
         float rimDirectional = 0.24f
             + 0.88f * pow(primaryLight, 2.4f)
-            + 0.34f * pow(secondaryBounce, 4.0f);
+            + 0.36f * pow(secondaryBounce, 4.0f);
 
-        float rimBoost = elem.shapeAndTransform.w + spotVal * 0.55f;
-        float outerRim = smoothstep(2.1f, 0.0f, dist) * rimDirectional * rimBoost;
-        float innerSheen = smoothstep(bz * 0.65f, 0.0f, dist)
-            * (0.08f + 0.18f * max(0.0f, dot(-n, lightDir)))
-            * rimBoost;
+        float effectiveRim = (rimBoost + spotVal * 0.55f) * globalRimScale;
+        float outerRim = smoothstep(2.2f, 0.0f, dist) * rimDirectional * effectiveRim;
+        float innerSheen = smoothstep(bz * 0.68f, 0.0f, dist)
+            * (0.08f + 0.19f * max(0.0f, dot(-n, lightDir)))
+            * effectiveRim;
 
-        // Subtle diagonal gyroscopic surface luster across glass face
         float sheenCoord = dot(domeNorm, lightDir);
-        float surfaceLuster = exp(-pow(sheenCoord - 0.35f, 2.0f) * 4.5f) * 0.055f * rimBoost;
+        float surfaceLuster = exp(-pow(sheenCoord - 0.35f, 2.0f) * 4.5f) * 0.058f * effectiveRim;
 
-        // Micro-grain quartz glass texture (eliminates banding & adds physical feel)
         float grain = (hash12(in.position.xy + float2(float(i) * 19.3f, 7.1f)) - 0.5f) * 0.014f;
 
         float3 rimColor = (tintMode == 1 && wallpaperMode == 3)
@@ -492,12 +587,11 @@ fragment float4 liquidGlassFragment(
             : float3(0.96f, 0.99f, 1.0f);
 
         float3 glassCol = refracted
-            + rimColor * (outerRim * 0.82f + innerSheen + surfaceLuster)
+            + rimColor * (outerRim * 0.84f + innerSheen + surfaceLuster)
             + grain;
 
-        // Crisp dark hairline contour on bright drafting paper so clear/light glass pops
         if (wallpaperMode == 3 && tintMode != 2) {
-            float hairline = smoothstep(1.4f, 0.0f, abs(sd + 0.6f)) * 0.16f;
+            float hairline = smoothstep(1.4f, 0.0f, abs(sd + 0.6f)) * 0.18f;
             glassCol = mix(glassCol, float3(0.22f, 0.30f, 0.45f), hairline);
         }
 

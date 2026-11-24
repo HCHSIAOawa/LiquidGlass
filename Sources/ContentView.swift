@@ -12,24 +12,29 @@ struct ContentView: View {
 
             GeometryReader { fullGeo in
                 let size = fullGeo.size
-                let cardWidth = min(size.width - 32, 344)
-                let dockWidth = min(size.width - 32, 348)
+                let cardWidth = min(size.width - 32, 346)
+                let labPillWidth = min(size.width - 32, 336)
                 let drawerWidth = min(size.width - 24, 366)
+                let dockCenterY = controller.dockCenterY(for: size.height, safeBottom: safeBottom)
 
                 ZStack(alignment: .topLeading) {
-                    // 1. Single-Pass 120Hz Pure Metal GPU Pipeline (Wallpapers + Multi-Glass Optics)
+                    // 1. Single-Pass 120Hz Pure Metal GPU Pipeline
                     MetalLiquidGlassView(controller: controller)
                         .frame(width: size.width, height: size.height)
 
-                    // 2. Two-Finger Pinch Gesture Canvas Layer (Allows effortless pinch anywhere)
+                    // 2. Interactive Canvas Layer (Tap for Water Shockwave Ripple + Two-Finger Pinch)
                     Color.clear
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            if controller.showSettingsDrawer {
-                                HapticsManager.shared.tapLight()
-                                controller.showSettingsDrawer = false
-                            }
-                        }
+                        .gesture(
+                            SpatialTapGesture(coordinateSpace: .named("screen"))
+                                .onEnded { event in
+                                    controller.triggerRipple(at: event.location, strength: 0.78)
+                                    HapticsManager.shared.tapSoft(intensity: 0.40)
+                                    if controller.selectedTab == .opticalStudio {
+                                        controller.selectedTab = .lensLab
+                                    }
+                                }
+                        )
                         .simultaneousGesture(
                             MagnifyGesture()
                                 .onChanged { value in
@@ -40,34 +45,59 @@ struct ContentView: View {
                                 }
                         )
 
-                    // 3. Dynamic Music Player Card Overlay (Aligned 1:1 with Metal Element 1)
+                    // 3. Zone 0: Dual-Droplet Liquid Fusion Lab Pill Bar
+                    if controller.labBarReveal > 0.005 {
+                        let lScale = 0.88 + 0.12 * controller.labBarReveal
+                        LensFusionLabPillOverlay(controller: controller, pillWidth: labPillWidth)
+                            .scaleEffect(lScale)
+                            .opacity(Double(min(1.0, max(0.0, controller.labBarReveal))))
+                            .position(x: size.width * 0.5, y: safeTop + 74)
+                            .allowsHitTesting(controller.isLensLabBarVisible)
+                    }
+
+                    // 4. Zone 1: Dynamic Music & Synth Beat Card
                     if controller.musicReveal > 0.005 {
                         let mScale = 0.84 + 0.16 * controller.musicReveal
                         MusicPlayerCardOverlay(controller: controller, cardWidth: cardWidth)
                             .scaleEffect(mScale)
                             .opacity(Double(min(1.0, max(0.0, controller.musicReveal))))
                             .position(controller.musicCardCenter)
-                            .allowsHitTesting(controller.showMusicCard)
+                            .allowsHitTesting(controller.isMusicVisible)
                     }
 
-                    // 4. Mini Control Center Overlay (Aligned 1:1 with Metal Element 2)
+                    // 5. Zone 2: Liquid Control Hub Card
                     if controller.controlReveal > 0.005 {
                         let cScale = 0.84 + 0.16 * controller.controlReveal
                         MiniControlCenterOverlay(controller: controller, cardWidth: cardWidth)
                             .scaleEffect(cScale)
                             .opacity(Double(min(1.0, max(0.0, controller.controlReveal))))
                             .position(controller.controlCardCenter)
-                            .allowsHitTesting(controller.showControlCenter)
+                            .allowsHitTesting(controller.isControlVisible)
                     }
 
-                    // 5. Main Hero Liquid Lens Interactive Target (Aligned 1:1 with Metal Element 3)
+                    // 6. Zone 3: Spatial Weather & 24h Solar Arc Card
+                    if controller.weatherReveal > 0.005 {
+                        let wScale = 0.84 + 0.16 * controller.weatherReveal
+                        WeatherSolarCardOverlay(controller: controller, cardWidth: cardWidth)
+                            .scaleEffect(wScale)
+                            .opacity(Double(min(1.0, max(0.0, controller.weatherReveal))))
+                            .position(controller.weatherCardCenter)
+                            .allowsHitTesting(controller.isWeatherVisible)
+                    }
+
+                    // 7. Interactive Liquid Droplets (Main Hero Lens + Fusable Companion Droplet)
                     HeroLensHitTarget(controller: controller)
 
-                    // 6. Collapsible Studio Control Drawer (Aligned 1:1 with Metal Element 4)
+                    if controller.companionReveal > 0.02 {
+                        CompanionDropletHitTarget(controller: controller)
+                            .allowsHitTesting(controller.dualDropletEnabled)
+                    }
+
+                    // 8. Zone 4: Optical & Wallpaper Studio Drawer
                     if controller.drawerReveal > 0.005 {
                         let dScale = 0.92 + 0.08 * controller.drawerReveal
-                        let drawerH: CGFloat = 352
-                        let drawerBaseY = size.height - safeBottom - 82 - drawerH * 0.5
+                        let drawerH: CGFloat = 360
+                        let drawerBaseY = size.height - safeBottom - 86 - drawerH * 0.5
                         let slideOffset = (1.0 - min(1.0, controller.drawerReveal)) * 44
 
                         StudioDrawerOverlay(
@@ -78,23 +108,25 @@ struct ContentView: View {
                         .scaleEffect(dScale)
                         .opacity(Double(min(1.0, max(0.0, controller.drawerReveal))))
                         .position(x: size.width * 0.5, y: drawerBaseY + slideOffset)
-                        .allowsHitTesting(controller.showSettingsDrawer)
+                        .allowsHitTesting(controller.isStudioVisible)
                     }
 
-                    // 7. Bottom Floating Liquid Dock (Aligned 1:1 with Metal Element 0)
-                    FloatingLiquidDockOverlay(
+                    // 9. Native iOS 26 Sliding Jelly-Magnifier Bottom Liquid Dock
+                    NativeLiquidDockOverlay(
                         controller: controller,
-                        selectedPhotoItem: $selectedPhotoItem,
-                        dockWidth: dockWidth
+                        screenWidth: size.width
                     )
-                    .position(x: size.width * 0.5, y: size.height - safeBottom - 36)
+                    .position(x: size.width * 0.5, y: dockCenterY)
 
-                    // 8. Safe-Area Top Status HUD (Below Dynamic Island)
-                    TopStatusHUD(controller: controller)
-                        .padding(.horizontal, 16)
-                        .padding(.top, safeTop + 6)
+                    // 10. Safe-Area Top Status HUD
+                    TopStatusHUD(
+                        controller: controller,
+                        selectedPhotoItem: $selectedPhotoItem
+                    )
+                    .padding(.horizontal, 14)
+                    .padding(.top, safeTop + 6)
                 }
-                .coordinateSpace(name: "screen")
+                .coordinateSpace(.named("screen"))
                 .frame(width: size.width, height: size.height)
                 .onAppear {
                     controller.updateGeometry(size: size, safeTop: safeTop, safeBottom: safeBottom)
@@ -119,7 +151,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Isolated Hero Lens Leaf View (Prevents 120Hz Physics From Invalidating Sibling Cards)
+// MARK: - Isolated Droplet Hit Targets (Prevent 120Hz Physics From Invalidating Sibling Views)
 
 private struct HeroLensHitTarget: View {
     let controller: GlassSceneController
@@ -160,16 +192,43 @@ private struct HeroLensHitTarget: View {
                 )
 
             if controller.showGestureHint {
-                Text("拖曳彈跳 · 雙指縮放 · 雙擊變形")
-                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.88))
+                Text("拖曳雙水滴融合 · 底部按住滑動果凍放大")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.90))
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
-                    .background(.black.opacity(0.38), in: Capsule())
+                    .background(Color.black.opacity(0.42), in: Capsule())
                     .offset(y: lensH * 0.5 + 22)
                     .allowsHitTesting(false)
             }
         }
         .position(controller.lensPosition)
+    }
+}
+
+private struct CompanionDropletHitTarget: View {
+    let controller: GlassSceneController
+
+    var body: some View {
+        let diameter = max(40, controller.companionRadius * 2)
+
+        Circle()
+            .fill(Color.white.opacity(0.001))
+            .frame(width: diameter, height: diameter)
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 2, coordinateSpace: .named("screen"))
+                    .onChanged { value in
+                        controller.updateCompanionDrag(
+                            translation: value.translation,
+                            velocity: value.velocity,
+                            location: value.location
+                        )
+                    }
+                    .onEnded { value in
+                        controller.endCompanionDrag(velocity: value.velocity)
+                    }
+            )
+            .position(controller.companionPosition)
     }
 }

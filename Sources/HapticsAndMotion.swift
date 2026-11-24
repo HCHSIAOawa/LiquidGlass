@@ -48,7 +48,7 @@ final class HapticsManager {
 
     func morphImpact() {
         guard isEnabled else { return }
-        rigidGen.impactOccurred(intensity: 0.90)
+        rigidGen.impactOccurred(intensity: 0.92)
     }
 
     func selection() {
@@ -61,7 +61,6 @@ final class HapticsManager {
         notificationGen.notificationOccurred(.success)
     }
 
-    /// Dynamic intensity haptic feedback when a liquid glass lens bounces off screen edges.
     func wallBounce(speed: Float) {
         guard isEnabled else { return }
         let now = CACurrentMediaTime()
@@ -72,7 +71,6 @@ final class HapticsManager {
         rigidGen.impactOccurred(intensity: CGFloat(normalized))
     }
 
-    /// Subtle detent tick while scrubbing sliders.
     func sliderTick(normalized: Double, buckets: Int = 18, lastBucket: inout Int) {
         let bucket = min(buckets, max(0, Int((normalized * Double(buckets)).rounded())))
         if lastBucket != -1 && bucket != lastBucket {
@@ -84,14 +82,17 @@ final class HapticsManager {
     }
 }
 
-// MARK: - CoreMotion Gyroscope & Gravity Specular Controller
+// MARK: - CoreMotion Gyroscope Specular & Accelerometer Gravity Controller
 
 final class MotionManager {
     private let manager = CMMotionManager()
     private(set) var isActive: Bool = false
 
-    /// Target normalized 2D specular light vector in screen coordinates (top-left origin).
+    /// Target normalized 2D specular light vector in screen coordinates.
     private(set) var targetLightDir = SIMD2<Float>(-0.58, -0.81)
+
+    /// Real-world gravity vector in UIKit/SwiftUI portrait coordinates (+Y points downward).
+    private(set) var screenGravity = SIMD2<Float>(0.0, 1.0)
 
     func setEnabled(_ enabled: Bool) {
         if enabled {
@@ -105,6 +106,7 @@ final class MotionManager {
         guard !isActive else { return }
         guard manager.isDeviceMotionAvailable else {
             targetLightDir = SIMD2<Float>(-0.58, -0.81)
+            screenGravity = SIMD2<Float>(0.0, 1.0)
             return
         }
 
@@ -113,11 +115,12 @@ final class MotionManager {
         manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self = self, let motion = motion else { return }
             let gx = Float(motion.gravity.x)
-            let gy = Float(-motion.gravity.y) // Invert Y so top-of-phone tilt maps naturally to screen Y
+            let gy = Float(-motion.gravity.y)
             let rotX = Float(motion.rotationRate.y) * 0.11
             let rotY = Float(motion.rotationRate.x) * 0.11
 
-            // Blend gravity tilt with wrist angular velocity for lively specular highlights
+            self.screenGravity = SIMD2<Float>(gx, gy)
+
             var vec = SIMD2<Float>(
                 gx * 1.35 + rotX - 0.18,
                 gy * 1.15 + rotY - 0.45
@@ -137,6 +140,7 @@ final class MotionManager {
         manager.stopDeviceMotionUpdates()
         isActive = false
         targetLightDir = SIMD2<Float>(-0.58, -0.81)
+        screenGravity = SIMD2<Float>(0.0, 1.0)
     }
 
     deinit {

@@ -6,16 +6,38 @@ import simd
 
 @Observable
 final class GlassSceneController {
-    // MARK: - User-Adjustable Optical & Wallpaper Settings
+    // MARK: - Active Bottom Tab & Pinning States
+
+    var selectedTab: DockTab = .lensLab
+    var pinnedMusic: Bool = false
+    var pinnedControl: Bool = false
+    var pinnedWeather: Bool = false
+
+    // MARK: - Optical, Atmosphere & Physics Toggles
 
     var wallpaper: WallpaperPreset = .aurora
     var tintMode: GlassTintMode = .clear
     var lensShape: LensShapeMode = .circle
 
-    var refraction: Double = 48.0
+    var refraction: Double = 50.0
     var bezel: Double = 34.0
-    var dispersion: Double = 0.13
-    var frost: Double = 0.35
+    var dispersion: Double = 0.14
+    var frost: Double = 0.42
+
+    var dualDropletEnabled: Bool = true {
+        didSet { HapticsManager.shared.tapMedium() }
+    }
+    var metaballFusionEnabled: Bool = true
+    var gravityModeEnabled: Bool = false {
+        didSet {
+            if gravityModeEnabled && !gyroEnabled {
+                gyroEnabled = true
+            }
+            HapticsManager.shared.selection()
+        }
+    }
+    var touchRipplesEnabled: Bool = true
+    var prismRimBoostEnabled: Bool = false
 
     var gyroEnabled: Bool = true {
         didSet {
@@ -33,43 +55,63 @@ final class GlassSceneController {
 
     var showFPS: Bool = true
     var showTypographyOnPhoto: Bool = false
+    var showGestureHint: Bool = true
 
-    // MARK: - Mini Control Center States
+    // MARK: - Control Hub & Spatial Weather States
 
     var flashlightOn: Bool = false
     var sceneBrightness: Double = 1.0
 
-    // MARK: - Dynamic Music Card States
+    var weatherCondition: WeatherCondition = .sunny
+    var solarHour: Double = 16.5 // 0...24
+
+    // MARK: - Music & Beat Pad States
 
     var isPlayingMusic: Bool = true
     var currentTrackIndex: Int = 0
-    var trackProgress: Double = 0.28 // 0...1
+    var trackProgress: Double = 0.28
+    var lastTriggeredPad: Int = -1
 
     var currentTrack: MusicTrack {
         MusicTrack.catalog[currentTrackIndex % MusicTrack.catalog.count]
     }
 
-    // MARK: - Collapsible Card Visibility & Spring Reveal Progress
+    // Computed visibility per interactive zone
+    var isLensLabBarVisible: Bool { selectedTab == .lensLab }
+    var isMusicVisible: Bool { selectedTab == .musicBeat || pinnedMusic }
+    var isControlVisible: Bool { selectedTab == .controlHub || pinnedControl }
+    var isWeatherVisible: Bool { selectedTab == .weatherSolar || pinnedWeather }
+    var isStudioVisible: Bool { selectedTab == .opticalStudio }
 
-    var showMusicCard: Bool = true
-    var showControlCenter: Bool = false
-    var showSettingsDrawer: Bool = false
-    var showGestureHint: Bool = true
+    // MARK: - Spring Reveal Progress (0...1)
 
-    private(set) var musicReveal: CGFloat = 1.0
+    private(set) var labBarReveal: CGFloat = 1.0
+    private(set) var musicReveal: CGFloat = 0.0
     private(set) var controlReveal: CGFloat = 0.0
+    private(set) var weatherReveal: CGFloat = 0.0
     private(set) var drawerReveal: CGFloat = 0.0
+    private(set) var companionReveal: CGFloat = 1.0
 
-    // MARK: - Live Positioned Geometry (Synced 1:1 Between SwiftUI Overlays & Metal)
+    // MARK: - Live Positioned Geometry (Synced 1:1 Between SwiftUI & Metal)
 
-    private(set) var lensPosition: CGPoint = CGPoint(x: 196, y: 420)
-    private(set) var lensHalfSize: CGSize = CGSize(width: 94, height: 94)
-    private(set) var lensCornerRadius: CGFloat = 94
+    private(set) var lensPosition: CGPoint = CGPoint(x: 162, y: 430)
+    private(set) var lensHalfSize: CGSize = CGSize(width: 90, height: 90)
+    private(set) var lensCornerRadius: CGFloat = 90
 
-    private(set) var musicCardCenter: CGPoint = CGPoint(x: 196, y: 168)
-    private(set) var controlCardCenter: CGPoint = CGPoint(x: 196, y: 318)
+    private(set) var companionPosition: CGPoint = CGPoint(x: 258, y: 505)
+    private(set) var companionRadius: CGFloat = 56
 
-    // Live FPS readout (updated every 0.25s to avoid 120Hz text re-layout)
+    private(set) var musicCardCenter: CGPoint = CGPoint(x: 196, y: 192)
+    private(set) var controlCardCenter: CGPoint = CGPoint(x: 196, y: 218)
+    private(set) var weatherCardCenter: CGPoint = CGPoint(x: 196, y: 204)
+
+    // Sliding Dock Crystal Jelly Magnifier State
+    private(set) var dockThumbScreenPos: CGPoint = CGPoint(x: 80, y: 780)
+    private(set) var dockThumbLiftValue: CGFloat = 0.0
+    private(set) var isScrubbingDock: Bool = false
+    private(set) var isPullingUpToPin: Bool = false
+
+    // Live FPS readout
     private(set) var currentFPS: Int = 120
     private(set) var currentFrameMs: Double = 8.3
 
@@ -78,7 +120,7 @@ final class GlassSceneController {
     // MARK: - Observation-Ignored 120Hz Physics & GPU Buffers
 
     @ObservationIgnored var sceneUniforms = SceneUniforms()
-    @ObservationIgnored var elementUniforms = [GlassElementUniform](repeating: GlassElementUniform(), count: 8)
+    @ObservationIgnored var elementUniforms = [GlassElementUniform](repeating: GlassElementUniform(), count: 12)
 
     @ObservationIgnored var customPhotoImage: UIImage?
     @ObservationIgnored var customPhotoRevision: Int = 0
@@ -91,17 +133,16 @@ final class GlassSceneController {
     @ObservationIgnored private var safeBottomInset: CGFloat = 34
     @ObservationIgnored private var viewportSize: CGSize = CGSize(width: 393, height: 852)
 
-    // Hero Lens physics state
+    // Hero Lens physics
     @ObservationIgnored private var isDraggingLens: Bool = false
     @ObservationIgnored private var lensDragStart: CGPoint = .zero
     @ObservationIgnored private var lensVelocity = SIMD2<Float>(0, 0)
     @ObservationIgnored private var lensZoomScale: Float = 1.0
     @ObservationIgnored private var pinchStartScale: Float = 1.0
 
-    // Spring-interpolated lens shape & jelly deformation
-    @ObservationIgnored private var animHalfSize = SIMD2<Float>(94, 94)
+    @ObservationIgnored private var animHalfSize = SIMD2<Float>(90, 90)
     @ObservationIgnored private var animHalfSizeVel = SIMD2<Float>(0, 0)
-    @ObservationIgnored private var animCornerRadius: Float = 94
+    @ObservationIgnored private var animCornerRadius: Float = 90
     @ObservationIgnored private var animCornerVel: Float = 0
 
     @ObservationIgnored private var lensLiftScale: Float = 1.0
@@ -110,24 +151,55 @@ final class GlassSceneController {
     @ObservationIgnored private var lensStretchVel: Float = 0.0
     @ObservationIgnored private var lensStretchAngle: Float = 0.0
 
-    // Draggable cards physics state
+    // Companion Fusion Droplet physics
+    @ObservationIgnored private var isDraggingCompanion: Bool = false
+    @ObservationIgnored private var companionDragStart: CGPoint = .zero
+    @ObservationIgnored private var companionVelocity = SIMD2<Float>(0, 0)
+    @ObservationIgnored private var companionLiftScale: Float = 1.0
+    @ObservationIgnored private var companionLiftVel: Float = 0.0
+    @ObservationIgnored private var companionStretchFactor: Float = 1.0
+    @ObservationIgnored private var companionStretchVel: Float = 0.0
+    @ObservationIgnored private var companionStretchAngle: Float = 0.0
+    @ObservationIgnored private var companionRevealVel: Float = 0.0
+    @ObservationIgnored private var wasDropletsFused: Bool = true
+
+    // Sliding Dock Crystal Jelly Magnifier physics
+    @ObservationIgnored private var dockThumbPos = SIMD2<Float>(80, 780)
+    @ObservationIgnored private var dockThumbVel = SIMD2<Float>(0, 0)
+    @ObservationIgnored private var dockThumbTarget = SIMD2<Float>(80, 780)
+    @ObservationIgnored private var dockThumbLift: Float = 0.0
+    @ObservationIgnored private var dockThumbLiftVel: Float = 0.0
+    @ObservationIgnored private var dockThumbStretch: Float = 1.0
+    @ObservationIgnored private var dockThumbStretchVel: Float = 0.0
+    @ObservationIgnored private var dockScrubStartTab: DockTab = .lensLab
+
+    // Card reveal velocities & draggable card physics
+    @ObservationIgnored private var labBarRevealVel: Float = 0
+    @ObservationIgnored private var musicRevealVel: Float = 0
+    @ObservationIgnored private var controlRevealVel: Float = 0
+    @ObservationIgnored private var weatherRevealVel: Float = 0
+    @ObservationIgnored private var drawerRevealVel: Float = 0
+
     @ObservationIgnored private var musicOffset = SIMD2<Float>(0, 0)
     @ObservationIgnored private var musicDragStart = SIMD2<Float>(0, 0)
     @ObservationIgnored private var musicVelocity = SIMD2<Float>(0, 0)
     @ObservationIgnored private var isDraggingMusic: Bool = false
-    @ObservationIgnored private var musicRevealVel: Float = 0
 
     @ObservationIgnored private var controlOffset = SIMD2<Float>(0, 0)
     @ObservationIgnored private var controlDragStart = SIMD2<Float>(0, 0)
     @ObservationIgnored private var controlVelocity = SIMD2<Float>(0, 0)
     @ObservationIgnored private var isDraggingControl: Bool = false
-    @ObservationIgnored private var controlRevealVel: Float = 0
-    @ObservationIgnored private var controlAnchorY: Float = 310
 
-    @ObservationIgnored private var drawerRevealVel: Float = 0
-    @ObservationIgnored private var spotlightAnim: Float = 0
+    @ObservationIgnored private var weatherOffset = SIMD2<Float>(0, 0)
+    @ObservationIgnored private var weatherDragStart = SIMD2<Float>(0, 0)
+    @ObservationIgnored private var weatherVelocity = SIMD2<Float>(0, 0)
+    @ObservationIgnored private var isDraggingWeather: Bool = false
 
-    // Smoothed specular light vector
+    // Shockwave ripple & lighting state
+    @ObservationIgnored private var rippleCenter = SIMD2<Float>(196, 420)
+    @ObservationIgnored private var rippleRadius: Float = 0.0
+    @ObservationIgnored private var rippleStrength: Float = 0.0
+    @ObservationIgnored private var spotlightAnim: Float = 0.0
     @ObservationIgnored private var currentLightDir = SIMD2<Float>(-0.58, -0.81)
     @ObservationIgnored private var touchLightPos: SIMD2<Float>?
 
@@ -142,7 +214,22 @@ final class GlassSceneController {
         motionManager.setEnabled(true)
     }
 
-    // MARK: - Layout & Safe Area Sync
+    // MARK: - Geometry & Dock Slot Helpers
+
+    func dockWidth(for screenWidth: CGFloat) -> CGFloat {
+        min(screenWidth - 24.0, 362.0)
+    }
+
+    func dockCenterY(for screenHeight: CGFloat, safeBottom: CGFloat) -> CGFloat {
+        screenHeight - safeBottom - 38.0
+    }
+
+    func dockSlotScreenX(index: Int, screenWidth: CGFloat) -> CGFloat {
+        let dWidth = dockWidth(for: screenWidth)
+        let innerLeft = (screenWidth - dWidth) * 0.5 + 8.0
+        let slotW = (dWidth - 16.0) / CGFloat(DockTab.allCases.count)
+        return innerLeft + slotW * (CGFloat(index) + 0.5)
+    }
 
     func updateGeometry(size: CGSize, safeTop: CGFloat, safeBottom: CGFloat) {
         guard size.width > 40, size.height > 40 else { return }
@@ -152,17 +239,147 @@ final class GlassSceneController {
 
         if !hasInitializedLayout {
             hasInitializedLayout = true
-            lensPosition = CGPoint(x: size.width * 0.5, y: size.height * 0.53)
-            let baseMusicY = safeTop + 112
-            musicCardCenter = CGPoint(x: size.width * 0.5, y: baseMusicY)
-            controlAnchorY = Float(safeTop + 266)
-            controlCardCenter = CGPoint(x: size.width * 0.5, y: CGFloat(controlAnchorY))
+            lensPosition = CGPoint(x: size.width * 0.41, y: size.height * 0.49)
+            companionPosition = CGPoint(x: size.width * 0.64, y: size.height * 0.56)
+            musicCardCenter = CGPoint(x: size.width * 0.5, y: safeTop + 148)
+            controlCardCenter = CGPoint(x: size.width * 0.5, y: safeTop + 174)
+            weatherCardCenter = CGPoint(x: size.width * 0.5, y: safeTop + 160)
+
+            let slotX = Float(dockSlotScreenX(index: selectedTab.rawValue, screenWidth: size.width))
+            let dockY = Float(dockCenterY(for: size.height, safeBottom: safeBottom))
+            dockThumbPos = SIMD2<Float>(slotX, dockY)
+            dockThumbTarget = dockThumbPos
+            dockThumbScreenPos = CGPoint(x: CGFloat(slotX), y: CGFloat(dockY))
         }
     }
 
-    // MARK: - Hero Lens Gesture Handlers
+    // MARK: - Native Sliding Jelly Magnifier Dock Gestures
 
-    func beginLensDrag() {
+    func selectDockTab(_ tab: DockTab) {
+        if selectedTab == tab && tab != .lensLab {
+            // Tapping active non-default tab collapses back to open Lens Lab
+            selectedTab = .lensLab
+        } else {
+            selectedTab = tab
+        }
+        dockThumbStretchVel += 2.6
+        dockThumbLiftVel += 3.2
+        HapticsManager.shared.selection()
+    }
+
+    func updateDockScrub(localLocation: CGPoint, velocityX: CGFloat) {
+        let dWidth = dockWidth(for: viewportSize.width)
+        let dockLeft = (viewportSize.width - dWidth) * 0.5
+        let dockY = dockCenterY(for: viewportSize.height, safeBottom: safeBottomInset)
+
+        if !isScrubbingDock {
+            isScrubbingDock = true
+            dockScrubStartTab = selectedTab
+            HapticsManager.shared.tapSoft(intensity: 0.65)
+        }
+
+        // Rubber-band X within Dock pill bounds
+        let minLocalX: CGFloat = 34.0
+        let maxLocalX: CGFloat = dWidth - 34.0
+        var clampedLocalX = localLocation.x
+        if clampedLocalX < minLocalX {
+            clampedLocalX = minLocalX + (clampedLocalX - minLocalX) * 0.28
+        } else if clampedLocalX > maxLocalX {
+            clampedLocalX = maxLocalX + (clampedLocalX - maxLocalX) * 0.28
+        }
+
+        // Rubber-band Y so pulling upward stretches the liquid droplet
+        let relY = localLocation.y - 34.0
+        let rubberY = max(-26.0, min(10.0, relY * 0.34))
+
+        let targetScreenX = Float(dockLeft + clampedLocalX)
+        let targetScreenY = Float(dockY + rubberY)
+        dockThumbTarget = SIMD2<Float>(targetScreenX, targetScreenY)
+
+        // Velocity-driven horizontal jelly stretch
+        let speedX = Float(abs(velocityX))
+        let desiredStretch = 1.0 + min(0.46, speedX / 1350.0)
+        if desiredStretch > dockThumbStretch {
+            dockThumbStretch += (desiredStretch - dockThumbStretch) * 0.35
+        }
+
+        // Detect hovered slot & switch live with crisp selection tick
+        let slotCount = DockTab.allCases.count
+        let slotW = (dWidth - 16.0) / CGFloat(slotCount)
+        let rawIndex = Int(((localLocation.x - 8.0) / max(1.0, slotW)).rounded(.down))
+        let clampedIndex = min(slotCount - 1, max(0, rawIndex))
+        let hoveredTab = DockTab.allCases[clampedIndex]
+
+        if hoveredTab != selectedTab {
+            selectedTab = hoveredTab
+            dockThumbStretchVel += 1.8
+            HapticsManager.shared.selection()
+        }
+
+        // Pull-up-to-pin gesture check
+        let pullingUp = (relY < -48.0) && hoveredTab.supportsPinning
+        if pullingUp != isPullingUpToPin {
+            isPullingUpToPin = pullingUp
+            if pullingUp {
+                HapticsManager.shared.tapMedium(intensity: 0.85)
+            }
+        }
+    }
+
+    func endDockScrub(wasTap: Bool = false) {
+        if isPullingUpToPin {
+            togglePin(for: selectedTab)
+            triggerRipple(
+                at: CGPoint(x: dockThumbScreenPos.x, y: dockThumbScreenPos.y - 24),
+                strength: 0.85
+            )
+        } else if wasTap && selectedTab == dockScrubStartTab && selectedTab != .lensLab {
+            selectedTab = .lensLab
+            HapticsManager.shared.selection()
+        }
+        isScrubbingDock = false
+        isPullingUpToPin = false
+        // Jelly settle bounce on release
+        dockThumbStretchVel -= 2.2
+        HapticsManager.shared.tapLight(intensity: 0.50)
+    }
+
+    func togglePin(for tab: DockTab) {
+        switch tab {
+        case .musicBeat:
+            pinnedMusic.toggle()
+            HapticsManager.shared.morphImpact()
+        case .controlHub:
+            pinnedControl.toggle()
+            HapticsManager.shared.morphImpact()
+        case .weatherSolar:
+            pinnedWeather.toggle()
+            HapticsManager.shared.morphImpact()
+        case .lensLab, .opticalStudio:
+            break
+        }
+    }
+
+    // MARK: - Water Shockwave Ripple & Synth Beat Pads
+
+    func triggerRipple(at point: CGPoint, strength: Float = 0.80) {
+        guard touchRipplesEnabled else { return }
+        rippleCenter = SIMD2<Float>(Float(point.x), Float(point.y))
+        rippleRadius = 8.0
+        rippleStrength = min(1.0, max(0.25, strength))
+    }
+
+    func triggerBeatPad(index: Int, screenPoint: CGPoint) {
+        lastTriggeredPad = index
+        triggerRipple(at: screenPoint, strength: 0.92)
+        lensLiftVel += 2.2
+        companionLiftVel += 2.6
+        HapticsManager.shared.morphImpact()
+    }
+
+    // MARK: - Hero Lens & Companion Droplet Gestures
+
+    func updateLensDrag(translation: CGSize, velocity: CGSize, location: CGPoint) {
         if !isDraggingLens {
             isDraggingLens = true
             lensDragStart = lensPosition
@@ -170,16 +387,9 @@ final class GlassSceneController {
             showGestureHint = false
             HapticsManager.shared.tapSoft(intensity: 0.55)
         }
-    }
-
-    func updateLensDrag(translation: CGSize, velocity: CGSize, location: CGPoint) {
-        if !isDraggingLens {
-            beginLensDrag()
-        }
         var targetX = lensDragStart.x + translation.width
         var targetY = lensDragStart.y + translation.height
 
-        // Rubber-band softly near screen boundaries
         let minX = lensHalfSize.width * 0.85 + 8
         let maxX = viewportSize.width - lensHalfSize.width * 0.85 - 8
         let minY = safeTopInset + 48 + lensHalfSize.height * 0.85
@@ -191,23 +401,44 @@ final class GlassSceneController {
         if targetY > maxY { targetY = maxY + (targetY - maxY) * 0.32 }
 
         lensPosition = CGPoint(x: targetX, y: targetY)
-
-        let vx = Float(velocity.width)
-        let vy = Float(velocity.height)
-        lensVelocity = lensVelocity * 0.35 + SIMD2<Float>(vx, vy) * 0.65
+        lensVelocity = lensVelocity * 0.35 + SIMD2<Float>(Float(velocity.width), Float(velocity.height)) * 0.65
         touchLightPos = SIMD2<Float>(Float(location.x), Float(location.y))
     }
 
     func endLensDrag(velocity: CGSize) {
         isDraggingLens = false
         touchLightPos = nil
-        let maxSpeed: Float = 2600.0
+        lensVelocity = clampVelocity(velocity, maxSpeed: 2600.0)
+    }
+
+    func updateCompanionDrag(translation: CGSize, velocity: CGSize, location: CGPoint) {
+        if !isDraggingCompanion {
+            isDraggingCompanion = true
+            companionDragStart = companionPosition
+            companionVelocity = .zero
+            showGestureHint = false
+            HapticsManager.shared.tapSoft(intensity: 0.50)
+        }
+        let targetX = companionDragStart.x + translation.width
+        let targetY = companionDragStart.y + translation.height
+        companionPosition = CGPoint(x: targetX, y: targetY)
+        companionVelocity = companionVelocity * 0.35 + SIMD2<Float>(Float(velocity.width), Float(velocity.height)) * 0.65
+        touchLightPos = SIMD2<Float>(Float(location.x), Float(location.y))
+    }
+
+    func endCompanionDrag(velocity: CGSize) {
+        isDraggingCompanion = false
+        touchLightPos = nil
+        companionVelocity = clampVelocity(velocity, maxSpeed: 2600.0)
+    }
+
+    private func clampVelocity(_ velocity: CGSize, maxSpeed: Float) -> SIMD2<Float> {
         var v = SIMD2<Float>(Float(velocity.width), Float(velocity.height))
         let speed = simd_length(v)
         if speed > maxSpeed {
             v = (v / speed) * maxSpeed
         }
-        lensVelocity = v
+        return v
     }
 
     func updateLensPinch(magnification: CGFloat) {
@@ -224,9 +455,9 @@ final class GlassSceneController {
     func cycleLensShape() {
         showGestureHint = false
         lensShape = lensShape.next()
-        // Inject elastic jelly pop impulse
         lensLiftVel += 3.4
         lensStretchVel += 2.2
+        triggerRipple(at: lensPosition, strength: 0.72)
         HapticsManager.shared.morphImpact()
     }
 
@@ -234,17 +465,20 @@ final class GlassSceneController {
         lensShape = .circle
         lensZoomScale = 1.0
         pinchStartScale = 1.0
-        lensVelocity = SIMD2<Float>(0, -180)
-        lensPosition = CGPoint(x: viewportSize.width * 0.5, y: viewportSize.height * 0.53)
+        lensPosition = CGPoint(x: viewportSize.width * 0.41, y: viewportSize.height * 0.49)
+        companionPosition = CGPoint(x: viewportSize.width * 0.64, y: viewportSize.height * 0.56)
+        lensVelocity = SIMD2<Float>(-140, -180)
+        companionVelocity = SIMD2<Float>(140, 140)
         musicOffset = .zero
-        musicVelocity = .zero
         controlOffset = .zero
-        controlVelocity = .zero
+        weatherOffset = .zero
         lensLiftVel += 3.0
+        companionLiftVel += 3.0
+        triggerRipple(at: CGPoint(x: viewportSize.width * 0.5, y: viewportSize.height * 0.5), strength: 0.90)
         HapticsManager.shared.tapMedium()
     }
 
-    // MARK: - Draggable Card Gesture Handlers
+    // MARK: - Draggable Cards Gestures
 
     func updateMusicCardDrag(translation: CGSize, velocity: CGSize) {
         if !isDraggingMusic {
@@ -258,7 +492,7 @@ final class GlassSceneController {
 
     func endMusicCardDrag(velocity: CGSize) {
         isDraggingMusic = false
-        musicVelocity = SIMD2<Float>(Float(velocity.width), Float(velocity.height)) * 0.45
+        musicVelocity = SIMD2<Float>(Float(velocity.width), Float(velocity.height)) * 0.42
     }
 
     func updateControlCardDrag(translation: CGSize, velocity: CGSize) {
@@ -273,10 +507,25 @@ final class GlassSceneController {
 
     func endControlCardDrag(velocity: CGSize) {
         isDraggingControl = false
-        controlVelocity = SIMD2<Float>(Float(velocity.width), Float(velocity.height)) * 0.45
+        controlVelocity = SIMD2<Float>(Float(velocity.width), Float(velocity.height)) * 0.42
     }
 
-    // MARK: - Music Controls & Custom Photo Import
+    func updateWeatherCardDrag(translation: CGSize, velocity: CGSize) {
+        if !isDraggingWeather {
+            isDraggingWeather = true
+            weatherDragStart = weatherOffset
+            HapticsManager.shared.tapSoft(intensity: 0.45)
+        }
+        weatherOffset = weatherDragStart + SIMD2<Float>(Float(translation.width), Float(translation.height))
+        weatherVelocity = SIMD2<Float>(Float(velocity.width), Float(velocity.height))
+    }
+
+    func endWeatherCardDrag(velocity: CGSize) {
+        isDraggingWeather = false
+        weatherVelocity = SIMD2<Float>(Float(velocity.width), Float(velocity.height)) * 0.42
+    }
+
+    // MARK: - Music & Photo Helpers
 
     func togglePlayPause() {
         isPlayingMusic.toggle()
@@ -325,22 +574,16 @@ final class GlassSceneController {
         }
     }
 
-    // MARK: - 120Hz Lockstep Physics & Uniform Builder (Called per MTKView Draw)
+    // MARK: - 120Hz Lockstep Physics & Uniform Builder
 
     func stepFrame(now: CFTimeInterval, drawablePointSize: CGSize) {
         if drawablePointSize.width > 40, drawablePointSize.height > 40 {
             viewportSize = drawablePointSize
         }
 
-        let rawDt: Double
-        if lastStepTime == 0 {
-            rawDt = 1.0 / 120.0
-        } else {
-            rawDt = now - lastStepTime
-        }
+        let rawDt = (lastStepTime == 0) ? (1.0 / 120.0) : (now - lastStepTime)
         lastStepTime = now
 
-        // Measure real ProMotion FPS (rolling 0.25s window)
         if rawDt > 0.0005 && rawDt < 0.5 {
             fpsFrameCount += 1
             fpsAccumDuration += rawDt
@@ -360,7 +603,6 @@ final class GlassSceneController {
         let dt = Float(min(max(rawDt, 1.0 / 240.0), 1.0 / 28.0))
         let elapsed = Float(now - startTime)
 
-        // Advance simulated music playback smoothly without extra Timers
         if isPlayingMusic {
             audioProgressAccum += Double(dt)
             if audioProgressAccum >= 0.12 {
@@ -376,58 +618,91 @@ final class GlassSceneController {
             }
         }
 
+        // Advance water shockwave ripple
+        if rippleStrength > 0.003 {
+            rippleRadius += 520.0 * dt
+            rippleStrength *= exp(-2.7 * dt)
+            if rippleStrength < 0.004 {
+                rippleStrength = 0.0
+            }
+        }
+
         stepSpringReveals(dt: dt)
-        stepHeroLensPhysics(dt: dt)
+        stepDockMagnifierPhysics(dt: dt)
+        stepDropletsPhysics(dt: dt)
         stepDraggableCardsPhysics(dt: dt)
         stepLightingAndBuildUniforms(dt: dt, elapsed: elapsed)
     }
 
     private func stepSpringReveals(dt: Float) {
-        // Second-order critically/under-damped springs for card open/close animations
-        var mPos = Float(musicReveal)
-        stepSpring1D(pos: &mPos, vel: &musicRevealVel, target: showMusicCard ? 1.0 : 0.0, omega: 22.0, zeta: 0.76, dt: dt)
-        if abs(CGFloat(mPos) - musicReveal) > 0.0008 {
-            musicReveal = CGFloat(max(0.0, mPos))
-        } else if !showMusicCard && mPos < 0.002 && musicReveal != 0 {
-            musicReveal = 0
-        } else if showMusicCard && abs(mPos - 1.0) < 0.002 && musicReveal != 1.0 {
-            musicReveal = 1.0
-        }
-
-        var cPos = Float(controlReveal)
-        stepSpring1D(pos: &cPos, vel: &controlRevealVel, target: showControlCenter ? 1.0 : 0.0, omega: 22.0, zeta: 0.76, dt: dt)
-        if abs(CGFloat(cPos) - controlReveal) > 0.0008 {
-            controlReveal = CGFloat(max(0.0, cPos))
-        } else if !showControlCenter && cPos < 0.002 && controlReveal != 0 {
-            controlReveal = 0
-        } else if showControlCenter && abs(cPos - 1.0) < 0.002 && controlReveal != 1.0 {
-            controlReveal = 1.0
-        }
-
-        var dPos = Float(drawerReveal)
-        stepSpring1D(pos: &dPos, vel: &drawerRevealVel, target: showSettingsDrawer ? 1.0 : 0.0, omega: 24.0, zeta: 0.82, dt: dt)
-        if abs(CGFloat(dPos) - drawerReveal) > 0.0008 {
-            drawerReveal = CGFloat(max(0.0, dPos))
-        } else if !showSettingsDrawer && dPos < 0.002 && drawerReveal != 0 {
-            drawerReveal = 0
-        } else if showSettingsDrawer && abs(dPos - 1.0) < 0.002 && drawerReveal != 1.0 {
-            drawerReveal = 1.0
-        }
+        updateRevealSpring(value: &labBarReveal, vel: &labBarRevealVel, active: isLensLabBarVisible, omega: 24.0, zeta: 0.78, dt: dt)
+        updateRevealSpring(value: &musicReveal, vel: &musicRevealVel, active: isMusicVisible, omega: 22.0, zeta: 0.76, dt: dt)
+        updateRevealSpring(value: &controlReveal, vel: &controlRevealVel, active: isControlVisible, omega: 22.0, zeta: 0.76, dt: dt)
+        updateRevealSpring(value: &weatherReveal, vel: &weatherRevealVel, active: isWeatherVisible, omega: 22.0, zeta: 0.76, dt: dt)
+        updateRevealSpring(value: &drawerReveal, vel: &drawerRevealVel, active: isStudioVisible, omega: 24.0, zeta: 0.82, dt: dt)
+        updateRevealSpring(value: &companionReveal, vel: &companionRevealVel, active: dualDropletEnabled, omega: 20.0, zeta: 0.68, dt: dt)
 
         let spotTarget: Float = flashlightOn ? 1.0 : 0.0
         spotlightAnim += (spotTarget - spotlightAnim) * min(1.0, dt * 14.0)
     }
 
-    private func stepHeroLensPhysics(dt: Float) {
-        // 1. Morph base shape + zoom scale smoothly via spring
+    private func updateRevealSpring(
+        value: inout CGFloat,
+        vel: inout Float,
+        active: Bool,
+        omega: Float,
+        zeta: Float,
+        dt: Float
+    ) {
+        var pos = Float(value)
+        let target: Float = active ? 1.0 : 0.0
+        stepSpring1D(pos: &pos, vel: &vel, target: target, omega: omega, zeta: zeta, dt: dt)
+        if abs(CGFloat(pos) - value) > 0.0008 {
+            value = CGFloat(max(0.0, pos))
+        } else if !active && pos < 0.002 && value != 0 {
+            value = 0
+        } else if active && abs(pos - 1.0) < 0.002 && value != 1.0 {
+            value = 1.0
+        }
+    }
+
+    private func stepDockMagnifierPhysics(dt: Float) {
+        if !isScrubbingDock {
+            let slotX = Float(dockSlotScreenX(index: selectedTab.rawValue, screenWidth: viewportSize.width))
+            let dockY = Float(dockCenterY(for: viewportSize.height, safeBottom: safeBottomInset))
+            dockThumbTarget = SIMD2<Float>(slotX, dockY)
+        }
+
+        let omega: Float = isScrubbingDock ? 36.0 : 26.0
+        let zeta: Float = isScrubbingDock ? 0.64 : 0.56
+        stepSpring2D(pos: &dockThumbPos, vel: &dockThumbVel, target: dockThumbTarget, omega: omega, zeta: zeta, dt: dt)
+
+        let targetLift: Float = isScrubbingDock ? 1.0 : 0.0
+        stepSpring1D(pos: &dockThumbLift, vel: &dockThumbLiftVel, target: targetLift, omega: 28.0, zeta: 0.54, dt: dt)
+
+        let speedX = abs(dockThumbVel.x)
+        let targetStretch = 1.0 + min(0.42, speedX / 1200.0)
+        stepSpring1D(pos: &dockThumbStretch, vel: &dockThumbStretchVel, target: targetStretch, omega: 28.0, zeta: 0.36, dt: dt)
+        dockThumbStretch = min(max(dockThumbStretch, 0.76), 1.50)
+
+        let pt = CGPoint(x: CGFloat(dockThumbPos.x), y: CGFloat(dockThumbPos.y))
+        if hypot(pt.x - dockThumbScreenPos.x, pt.y - dockThumbScreenPos.y) > 0.05 {
+            dockThumbScreenPos = pt
+        }
+        let clampedLift = CGFloat(min(1.25, max(0.0, dockThumbLift)))
+        if abs(clampedLift - dockThumbLiftValue) > 0.002 {
+            dockThumbLiftValue = clampedLift
+        }
+    }
+
+    private func stepDropletsPhysics(dt: Float) {
         let targetHalf = lensShape.baseHalfSize * lensZoomScale
         let targetCorner = lensShape.baseCornerRadius * lensZoomScale
-
         stepSpring2D(pos: &animHalfSize, vel: &animHalfSizeVel, target: targetHalf, omega: 20.0, zeta: 0.66, dt: dt)
         stepSpring1D(pos: &animCornerRadius, vel: &animCornerVel, target: targetCorner, omega: 20.0, zeta: 0.66, dt: dt)
 
-        let targetLift: Float = isDraggingLens ? 1.06 : 1.0
-        stepSpring1D(pos: &lensLiftScale, vel: &lensLiftVel, target: targetLift, omega: 24.0, zeta: 0.56, dt: dt)
+        stepSpring1D(pos: &lensLiftScale, vel: &lensLiftVel, target: isDraggingLens ? 1.07 : 1.0, omega: 24.0, zeta: 0.56, dt: dt)
+        stepSpring1D(pos: &companionLiftScale, vel: &companionLiftVel, target: isDraggingCompanion ? 1.09 : 1.0, omega: 24.0, zeta: 0.56, dt: dt)
 
         let effectiveHalf = animHalfSize * max(0.5, lensLiftScale)
         let effectiveCorner = animCornerRadius * max(0.5, lensLiftScale)
@@ -440,140 +715,233 @@ final class GlassSceneController {
             lensCornerRadius = CGFloat(effectiveCorner)
         }
 
-        // 2. Inertial glide & wall restitution bounce when finger is released
+        let compRad = 54.0 * max(0.5, companionLiftScale)
+        if abs(CGFloat(compRad) - companionRadius) > 0.08 {
+            companionRadius = CGFloat(compRad)
+        }
+
         let w = Float(viewportSize.width)
         let h = Float(viewportSize.height)
-        let minX = effectiveHalf.x + 10.0
-        let maxX = max(minX + 1.0, w - effectiveHalf.x - 10.0)
-        let minY = Float(safeTopInset) + 52.0 + effectiveHalf.y
-        let maxY = max(minY + 1.0, h - Float(safeBottomInset) - 86.0 - effectiveHalf.y)
+        let gravityAccel = gravityModeEnabled ? (motionManager.screenGravity * 920.0) : SIMD2<Float>(0, 0)
+        let dragRate: Float = gravityModeEnabled ? 0.85 : 2.05
 
+        // Hero Lens integration
         if !isDraggingLens {
             var pos = SIMD2<Float>(Float(lensPosition.x), Float(lensPosition.y))
+            lensVelocity += gravityAccel * dt
             pos += lensVelocity * dt
+            lensVelocity *= exp(-dragRate * dt)
 
-            // Fluid viscous damping
-            lensVelocity *= exp(-2.05 * dt)
+            let minX = effectiveHalf.x + 10.0
+            let maxX = max(minX + 1.0, w - effectiveHalf.x - 10.0)
+            let minY = Float(safeTopInset) + 52.0 + effectiveHalf.y
+            let maxY = max(minY + 1.0, h - Float(safeBottomInset) - 86.0 - effectiveHalf.y)
+            let restitution: Float = 0.75
 
-            let restitution: Float = 0.74
             if pos.x < minX {
-                let impactSpeed = abs(lensVelocity.x)
+                let spd = abs(lensVelocity.x)
                 pos.x = minX
-                if lensVelocity.x < 0 {
-                    lensVelocity.x = -lensVelocity.x * restitution
-                    injectWallSquish(normalAngle: 0.0, impactSpeed: impactSpeed)
-                }
+                if lensVelocity.x < 0 { lensVelocity.x = -lensVelocity.x * restitution; injectLensSquish(angle: 0, speed: spd) }
             } else if pos.x > maxX {
-                let impactSpeed = abs(lensVelocity.x)
+                let spd = abs(lensVelocity.x)
                 pos.x = maxX
-                if lensVelocity.x > 0 {
-                    lensVelocity.x = -lensVelocity.x * restitution
-                    injectWallSquish(normalAngle: 0.0, impactSpeed: impactSpeed)
-                }
+                if lensVelocity.x > 0 { lensVelocity.x = -lensVelocity.x * restitution; injectLensSquish(angle: 0, speed: spd) }
             }
-
             if pos.y < minY {
-                let impactSpeed = abs(lensVelocity.y)
+                let spd = abs(lensVelocity.y)
                 pos.y = minY
-                if lensVelocity.y < 0 {
-                    lensVelocity.y = -lensVelocity.y * restitution
-                    injectWallSquish(normalAngle: .pi * 0.5, impactSpeed: impactSpeed)
-                }
+                if lensVelocity.y < 0 { lensVelocity.y = -lensVelocity.y * restitution; injectLensSquish(angle: .pi * 0.5, speed: spd) }
             } else if pos.y > maxY {
-                let impactSpeed = abs(lensVelocity.y)
+                let spd = abs(lensVelocity.y)
                 pos.y = maxY
-                if lensVelocity.y > 0 {
-                    lensVelocity.y = -lensVelocity.y * restitution
-                    injectWallSquish(normalAngle: .pi * 0.5, impactSpeed: impactSpeed)
+                if lensVelocity.y > 0 { lensVelocity.y = -lensVelocity.y * restitution; injectLensSquish(angle: .pi * 0.5, speed: spd) }
+            }
+
+            if !gravityModeEnabled && simd_length(lensVelocity) < 2.0 { lensVelocity = .zero }
+            let newPt = CGPoint(x: CGFloat(pos.x), y: CGFloat(pos.y))
+            if hypot(newPt.x - lensPosition.x, newPt.y - lensPosition.y) > 0.04 {
+                lensPosition = newPt
+            }
+        }
+
+        // Companion Droplet integration + Metaball cohesion/snap detection
+        if dualDropletEnabled {
+            if !isDraggingCompanion {
+                var cPos = SIMD2<Float>(Float(companionPosition.x), Float(companionPosition.y))
+                companionVelocity += gravityAccel * dt
+
+                // Gentle surface-tension attraction when very close in fusion mode
+                if metaballFusionEnabled {
+                    let heroPos = SIMD2<Float>(Float(lensPosition.x), Float(lensPosition.y))
+                    let delta = heroPos - cPos
+                    let dist = simd_length(delta)
+                    let mergeBand = max(effectiveHalf.x, effectiveHalf.y) + compRad + 34.0
+                    if dist > 26.0 && dist < mergeBand {
+                        companionVelocity += (delta / dist) * 165.0 * dt
+                    }
+                }
+
+                cPos += companionVelocity * dt
+                companionVelocity *= exp(-dragRate * dt)
+
+                let cMinX = compRad + 10.0
+                let cMaxX = max(cMinX + 1.0, w - compRad - 10.0)
+                let cMinY = Float(safeTopInset) + 52.0 + compRad
+                let cMaxY = max(cMinY + 1.0, h - Float(safeBottomInset) - 86.0 - compRad)
+                let rest: Float = 0.78
+
+                if cPos.x < cMinX {
+                    let spd = abs(companionVelocity.x)
+                    cPos.x = cMinX
+                    if companionVelocity.x < 0 { companionVelocity.x = -companionVelocity.x * rest; injectCompanionSquish(angle: 0, speed: spd) }
+                } else if cPos.x > cMaxX {
+                    let spd = abs(companionVelocity.x)
+                    cPos.x = cMaxX
+                    if companionVelocity.x > 0 { companionVelocity.x = -companionVelocity.x * rest; injectCompanionSquish(angle: 0, speed: spd) }
+                }
+                if cPos.y < cMinY {
+                    let spd = abs(companionVelocity.y)
+                    cPos.y = cMinY
+                    if companionVelocity.y < 0 { companionVelocity.y = -companionVelocity.y * rest; injectCompanionSquish(angle: .pi * 0.5, speed: spd) }
+                } else if cPos.y > cMaxY {
+                    let spd = abs(companionVelocity.y)
+                    cPos.y = cMaxY
+                    if companionVelocity.y > 0 { companionVelocity.y = -companionVelocity.y * rest; injectCompanionSquish(angle: .pi * 0.5, speed: spd) }
+                }
+
+                if !gravityModeEnabled && simd_length(companionVelocity) < 2.0 { companionVelocity = .zero }
+                let newCPt = CGPoint(x: CGFloat(cPos.x), y: CGFloat(cPos.y))
+                if hypot(newCPt.x - companionPosition.x, newCPt.y - companionPosition.y) > 0.04 {
+                    companionPosition = newCPt
                 }
             }
 
-            if simd_length(lensVelocity) < 2.0 {
-                lensVelocity = .zero
-            }
-
-            let newPoint = CGPoint(x: CGFloat(pos.x), y: CGFloat(pos.y))
-            if hypot(newPoint.x - lensPosition.x, newPoint.y - lensPosition.y) > 0.04 {
-                lensPosition = newPoint
+            // Detect liquid fusion kiss & snap-apart haptics
+            if metaballFusionEnabled {
+                let pA = SIMD2<Float>(Float(lensPosition.x), Float(lensPosition.y))
+                let pB = SIMD2<Float>(Float(companionPosition.x), Float(companionPosition.y))
+                let dist = simd_length(pA - pB)
+                let threshold = min(effectiveHalf.x, effectiveHalf.y) + compRad + 22.0
+                let nowFused = dist < threshold
+                if nowFused != wasDropletsFused {
+                    wasDropletsFused = nowFused
+                    let mid = CGPoint(x: CGFloat((pA.x + pB.x) * 0.5), y: CGFloat((pA.y + pB.y) * 0.5))
+                    if nowFused {
+                        HapticsManager.shared.tapSoft(intensity: 0.60)
+                    } else {
+                        lensStretchVel -= 2.0
+                        companionStretchVel -= 2.4
+                        triggerRipple(at: mid, strength: 0.78)
+                        HapticsManager.shared.morphImpact()
+                    }
+                }
             }
         }
 
-        // 3. Velocity-aligned liquid squash & stretch spring
-        let speed = simd_length(lensVelocity)
-        if speed > 28.0 {
-            let targetAngle = atan2(lensVelocity.y, lensVelocity.x)
-            // Shortest angular interpolation
-            var deltaAngle = targetAngle - lensStretchAngle
-            while deltaAngle > .pi { deltaAngle -= 2.0 * .pi }
-            while deltaAngle < -.pi { deltaAngle += 2.0 * .pi }
-            lensStretchAngle += deltaAngle * min(1.0, dt * 18.0)
-        }
-
-        let targetStretch = 1.0 + min(0.27, speed / 2500.0)
-        stepSpring1D(pos: &lensStretchFactor, vel: &lensStretchVel, target: targetStretch, omega: 26.0, zeta: 0.38, dt: dt)
-        lensStretchFactor = min(max(lensStretchFactor, 0.72), 1.38)
+        // Velocity squash & stretch springs for both droplets
+        updateDropletStretch(vel: lensVelocity, angle: &lensStretchAngle, stretch: &lensStretchFactor, stretchVel: &lensStretchVel, dt: dt)
+        updateDropletStretch(vel: companionVelocity, angle: &companionStretchAngle, stretch: &companionStretchFactor, stretchVel: &companionStretchVel, dt: dt)
     }
 
-    private func injectWallSquish(normalAngle: Float, impactSpeed: Float) {
-        guard impactSpeed > 75.0 else { return }
-        lensStretchAngle = normalAngle
-        // Negative stretch impulse along wall normal compresses droplet flat against the wall!
-        let impulse = min(4.2, impactSpeed * 0.0038)
-        lensStretchVel -= impulse
-        HapticsManager.shared.wallBounce(speed: impactSpeed)
+    private func updateDropletStretch(
+        vel: SIMD2<Float>,
+        angle: inout Float,
+        stretch: inout Float,
+        stretchVel: inout Float,
+        dt: Float
+    ) {
+        let speed = simd_length(vel)
+        if speed > 28.0 {
+            let targetAngle = atan2(vel.y, vel.x)
+            var delta = targetAngle - angle
+            while delta > .pi { delta -= 2.0 * .pi }
+            while delta < -.pi { delta += 2.0 * .pi }
+            angle += delta * min(1.0, dt * 18.0)
+        }
+        let targetStretch = 1.0 + min(0.28, speed / 2450.0)
+        stepSpring1D(pos: &stretch, vel: &stretchVel, target: targetStretch, omega: 26.0, zeta: 0.38, dt: dt)
+        stretch = min(max(stretch, 0.72), 1.40)
+    }
+
+    private func injectLensSquish(angle: Float, speed: Float) {
+        guard speed > 75.0 else { return }
+        lensStretchAngle = angle
+        lensStretchVel -= min(4.2, speed * 0.0038)
+        HapticsManager.shared.wallBounce(speed: speed)
+    }
+
+    private func injectCompanionSquish(angle: Float, speed: Float) {
+        guard speed > 75.0 else { return }
+        companionStretchAngle = angle
+        companionStretchVel -= min(4.2, speed * 0.0040)
+        HapticsManager.shared.wallBounce(speed: speed)
     }
 
     private func stepDraggableCardsPhysics(dt: Float) {
         let w = Float(viewportSize.width)
         let h = Float(viewportSize.height)
 
-        // Music Card inertial glide + soft boundary clamp
-        let baseMusicPos = SIMD2<Float>(w * 0.5, Float(safeTopInset) + 112.0)
-        if !isDraggingMusic {
-            musicOffset += musicVelocity * dt
-            musicVelocity *= exp(-6.5 * dt)
-            if simd_length(musicVelocity) < 1.5 { musicVelocity = .zero }
+        stepSingleCard(
+            basePos: SIMD2<Float>(w * 0.5, Float(safeTopInset) + 148.0),
+            offset: &musicOffset,
+            velocity: &musicVelocity,
+            isDragging: isDraggingMusic,
+            halfHeight: 88.0,
+            centerOut: &musicCardCenter,
+            w: w, h: h, dt: dt
+        )
 
-            let cardPos = baseMusicPos + musicOffset
-            let boundMinX: Float = 176.0
-            let boundMaxX = max(boundMinX, w - 176.0)
-            let boundMinY = Float(safeTopInset) + 98.0
-            let boundMaxY = max(boundMinY, h - Float(safeBottomInset) - 140.0)
+        stepSingleCard(
+            basePos: SIMD2<Float>(w * 0.5, Float(safeTopInset) + 174.0),
+            offset: &controlOffset,
+            velocity: &controlVelocity,
+            isDragging: isDraggingControl,
+            halfHeight: 112.0,
+            centerOut: &controlCardCenter,
+            w: w, h: h, dt: dt
+        )
+
+        stepSingleCard(
+            basePos: SIMD2<Float>(w * 0.5, Float(safeTopInset) + 160.0),
+            offset: &weatherOffset,
+            velocity: &weatherVelocity,
+            isDragging: isDraggingWeather,
+            halfHeight: 98.0,
+            centerOut: &weatherCardCenter,
+            w: w, h: h, dt: dt
+        )
+    }
+
+    private func stepSingleCard(
+        basePos: SIMD2<Float>,
+        offset: inout SIMD2<Float>,
+        velocity: inout SIMD2<Float>,
+        isDragging: Bool,
+        halfHeight: Float,
+        centerOut: inout CGPoint,
+        w: Float,
+        h: Float,
+        dt: Float
+    ) {
+        if !isDragging {
+            offset += velocity * dt
+            velocity *= exp(-6.5 * dt)
+            if simd_length(velocity) < 1.5 { velocity = .zero }
+
+            let cardPos = basePos + offset
+            let minX: Float = 176.0
+            let maxX = max(minX, w - 176.0)
+            let minY = Float(safeTopInset) + 52.0 + halfHeight
+            let maxY = max(minY, h - Float(safeBottomInset) - 96.0 - halfHeight)
 
             var clamped = cardPos
-            clamped.x = min(max(clamped.x, boundMinX), boundMaxX)
-            clamped.y = min(max(clamped.y, boundMinY), boundMaxY)
-            musicOffset += (clamped - cardPos) * min(1.0, dt * 14.0)
+            clamped.x = min(max(clamped.x, minX), maxX)
+            clamped.y = min(max(clamped.y, minY), maxY)
+            offset += (clamped - cardPos) * min(1.0, dt * 14.0)
         }
-        let finalMusic = baseMusicPos + musicOffset
-        if hypot(CGFloat(finalMusic.x) - musicCardCenter.x, CGFloat(finalMusic.y) - musicCardCenter.y) > 0.06 {
-            musicCardCenter = CGPoint(x: CGFloat(finalMusic.x), y: CGFloat(finalMusic.y))
-        }
-
-        // Control Center Card smooth anchor + inertial glide
-        let desiredAnchorY = Float(safeTopInset) + (showMusicCard ? 268.0 : 142.0)
-        controlAnchorY += (desiredAnchorY - controlAnchorY) * min(1.0, dt * 12.0)
-        let baseControlPos = SIMD2<Float>(w * 0.5, controlAnchorY)
-
-        if !isDraggingControl {
-            controlOffset += controlVelocity * dt
-            controlVelocity *= exp(-6.5 * dt)
-            if simd_length(controlVelocity) < 1.5 { controlVelocity = .zero }
-
-            let cardPos = baseControlPos + controlOffset
-            let boundMinX: Float = 176.0
-            let boundMaxX = max(boundMinX, w - 176.0)
-            let boundMinY = Float(safeTopInset) + 124.0
-            let boundMaxY = max(boundMinY, h - Float(safeBottomInset) - 165.0)
-
-            var clamped = cardPos
-            clamped.x = min(max(clamped.x, boundMinX), boundMaxX)
-            clamped.y = min(max(clamped.y, boundMinY), boundMaxY)
-            controlOffset += (clamped - cardPos) * min(1.0, dt * 14.0)
-        }
-        let finalControl = baseControlPos + controlOffset
-        if hypot(CGFloat(finalControl.x) - controlCardCenter.x, CGFloat(finalControl.y) - controlCardCenter.y) > 0.06 {
-            controlCardCenter = CGPoint(x: CGFloat(finalControl.x), y: CGFloat(finalControl.y))
+        let finalPos = basePos + offset
+        if hypot(CGFloat(finalPos.x) - centerOut.x, CGFloat(finalPos.y) - centerOut.y) > 0.06 {
+            centerOut = CGPoint(x: CGFloat(finalPos.x), y: CGFloat(finalPos.y))
         }
     }
 
@@ -581,15 +949,11 @@ final class GlassSceneController {
         let w = Float(viewportSize.width)
         let h = Float(viewportSize.height)
 
-        // Blend gyro tilt vector with active finger touch direction when dragging
         var desiredLight: SIMD2<Float>
         if gyroEnabled {
             desiredLight = motionManager.targetLightDir
         } else {
-            desiredLight = SIMD2<Float>(
-                cos(elapsed * 0.45) * 0.55 - 0.35,
-                sin(elapsed * 0.38) * 0.45 - 0.68
-            )
+            desiredLight = SIMD2<Float>(cos(elapsed * 0.45) * 0.55 - 0.35, sin(elapsed * 0.38) * 0.45 - 0.68)
         }
 
         if let touch = touchLightPos {
@@ -604,75 +968,104 @@ final class GlassSceneController {
         currentLightDir += (desiredLight - currentLightDir) * min(1.0, dt * 14.0)
         let normLight = simd_length(currentLightDir) > 1e-3 ? simd_normalize(currentLightDir) : SIMD2<Float>(-0.58, -0.81)
 
-        // Spotlight origin tracks Mini Control Center flashlight tile when visible, else top-center
-        let cardW = min(w - 32.0, 344.0)
+        let cardW = min(w - 32.0, 346.0)
         let spotOrigin: SIMD2<Float>
         if controlReveal > 0.05 {
-            spotOrigin = SIMD2<Float>(
-                Float(controlCardCenter.x) - cardW * 0.25,
-                Float(controlCardCenter.y) - 32.0
-            )
+            spotOrigin = SIMD2<Float>(Float(controlCardCenter.x) - cardW * 0.32, Float(controlCardCenter.y) - 38.0)
         } else {
             spotOrigin = SIMD2<Float>(w * 0.5, Float(safeTopInset) + 20.0)
         }
 
-        let textMix: Float
-        if wallpaper == .customPhoto {
-            textMix = showTypographyOnPhoto ? 0.72 : 0.0
+        let textMix: Float = (wallpaper == .customPhoto) ? (showTypographyOnPhoto ? 0.72 : 0.0) : 1.0
+
+        // Solar hour atmospheric warmth (active when Weather card is visible or scrubbed away from neutral 16.5)
+        let solarWarmth: Float
+        if weatherReveal > 0.02 {
+            // Golden peaks near 7h and 17.5h, midnight cool near 0h/24h
+            let phase = Float((solarHour / 24.0) * 2.0 * .pi)
+            solarWarmth = Float(weatherReveal) * (-cos(phase) * 0.55 + sin(phase * 2.0) * 0.25)
         } else {
-            textMix = 1.0
+            solarWarmth = 0.0
         }
 
-        // Populate Glass Elements array (z-order back-to-front)
         var count = 0
 
-        // [0] Floating Liquid Dock
-        let dockHalfW = min(w - 32.0, 348.0) * 0.5
-        let dockY = h - Float(safeBottomInset) - 36.0
+        // [0] Bottom Floating Liquid Dock Track
+        let dockW = Float(dockWidth(for: viewportSize.width))
+        let dockY = Float(dockCenterY(for: viewportSize.height, safeBottom: safeBottomInset))
         elementUniforms[count] = GlassElementUniform(
-            centerAndHalfSize: SIMD4<Float>(w * 0.5, dockY, dockHalfW, 34.0),
-            shapeAndTransform: SIMD4<Float>(34.0, 0.0, 1.0, 1.05),
-            styleParams: SIMD4<Float>(1.0, 0.55, 0.55, 0.90),
+            centerAndHalfSize: SIMD4<Float>(w * 0.5, dockY, dockW * 0.5, 34.0),
+            shapeAndTransform: SIMD4<Float>(34.0, 0.0, 1.0, 1.06),
+            styleParams: SIMD4<Float>(1.0, 0.52, 0.70, 0.92),
             tintOverride: SIMD4<Float>(0.90, 0.96, 1.0, 0.04)
         )
         count += 1
 
-        // [1] Dynamic Music Player Card
+        // [1] Lens Fusion Lab Mini Pill (Zone 0)
+        if labBarReveal > 0.005 {
+            let lScale = Float(0.88 + 0.12 * labBarReveal)
+            let pillHalfW = (min(w - 32.0, 336.0) * 0.5) * lScale
+            elementUniforms[count] = GlassElementUniform(
+                centerAndHalfSize: SIMD4<Float>(w * 0.5, Float(safeTopInset) + 74.0, pillHalfW, 25.0 * lScale),
+                shapeAndTransform: SIMD4<Float>(25.0 * lScale, 0.0, 1.0, 1.08),
+                styleParams: SIMD4<Float>(Float(min(1.0, labBarReveal)), 0.55, 0.55, 0.85),
+                tintOverride: SIMD4<Float>(0.25, 0.88, 1.0, gravityModeEnabled ? 0.14 : 0.04)
+            )
+            count += 1
+        }
+
+        // [2] Music & Synth Beat Card (Zone 1)
         if musicReveal > 0.005 {
             let mScale = Float(0.84 + 0.16 * musicReveal)
-            let mHalfW = (min(w - 32.0, 344.0) * 0.5) * mScale
-            let mHalfH: Float = 57.0 * mScale
+            let mHalfW = (cardW * 0.5) * mScale
+            let mHalfH: Float = 88.0 * mScale
             let mSpeed = simd_length(musicVelocity)
             let mAngle = mSpeed > 20.0 ? atan2(musicVelocity.y, musicVelocity.x) : 0.0
-            let mStretch = 1.0 + min(0.08, mSpeed / 3600.0)
             let trackTint = currentTrack.shaderTint
             elementUniforms[count] = GlassElementUniform(
                 centerAndHalfSize: SIMD4<Float>(Float(musicCardCenter.x), Float(musicCardCenter.y), mHalfW, mHalfH),
-                shapeAndTransform: SIMD4<Float>(28.0 * mScale, mAngle, mStretch, 1.08),
-                styleParams: SIMD4<Float>(Float(min(1.0, musicReveal)), 0.58, 0.52, isDraggingMusic ? 1.25 : 0.95),
+                shapeAndTransform: SIMD4<Float>(30.0 * mScale, mAngle, 1.0 + min(0.08, mSpeed / 3600.0), 1.10),
+                styleParams: SIMD4<Float>(Float(min(1.0, musicReveal)), 0.58, 0.55, isDraggingMusic ? 1.26 : 0.96),
                 tintOverride: SIMD4<Float>(trackTint.x, trackTint.y, trackTint.z, isPlayingMusic ? 0.13 : 0.04)
             )
             count += 1
         }
 
-        // [2] Mini Control Center Card
+        // [3] Control Hub Card (Zone 2)
         if controlReveal > 0.005 {
             let cScale = Float(0.84 + 0.16 * controlReveal)
-            let cHalfW = (min(w - 32.0, 344.0) * 0.5) * cScale
-            let cHalfH: Float = 84.0 * cScale
+            let cHalfW = (cardW * 0.5) * cScale
+            let cHalfH: Float = 112.0 * cScale
             let cSpeed = simd_length(controlVelocity)
             let cAngle = cSpeed > 20.0 ? atan2(controlVelocity.y, controlVelocity.x) : 0.0
-            let cStretch = 1.0 + min(0.08, cSpeed / 3600.0)
             elementUniforms[count] = GlassElementUniform(
                 centerAndHalfSize: SIMD4<Float>(Float(controlCardCenter.x), Float(controlCardCenter.y), cHalfW, cHalfH),
-                shapeAndTransform: SIMD4<Float>(30.0 * cScale, cAngle, cStretch, flashlightOn ? 1.32 : 1.08),
-                styleParams: SIMD4<Float>(Float(min(1.0, controlReveal)), 0.56, 0.58, isDraggingControl ? 1.25 : 0.98),
+                shapeAndTransform: SIMD4<Float>(30.0 * cScale, cAngle, 1.0 + min(0.08, cSpeed / 3600.0), flashlightOn ? 1.35 : 1.10),
+                styleParams: SIMD4<Float>(Float(min(1.0, controlReveal)), 0.56, 0.60, isDraggingControl ? 1.26 : 0.98),
                 tintOverride: SIMD4<Float>(0.96, 0.88, 0.58, flashlightOn ? 0.14 : 0.03)
             )
             count += 1
         }
 
-        // [3] Main Hero Liquid Lens
+        // [4] Spatial Weather & Sun Arc Card (Zone 3)
+        if weatherReveal > 0.005 {
+            let wScale = Float(0.84 + 0.16 * weatherReveal)
+            let wHalfW = (cardW * 0.5) * wScale
+            let wHalfH: Float = 98.0 * wScale
+            let wSpeed = simd_length(weatherVelocity)
+            let wAngle = wSpeed > 20.0 ? atan2(weatherVelocity.y, weatherVelocity.x) : 0.0
+            let wTint = weatherCondition.shaderTint
+            elementUniforms[count] = GlassElementUniform(
+                centerAndHalfSize: SIMD4<Float>(Float(weatherCardCenter.x), Float(weatherCardCenter.y), wHalfW, wHalfH),
+                shapeAndTransform: SIMD4<Float>(30.0 * wScale, wAngle, 1.0 + min(0.08, wSpeed / 3600.0), 1.12),
+                styleParams: SIMD4<Float>(Float(min(1.0, weatherReveal)), 0.56, 0.56, isDraggingWeather ? 1.26 : 0.98),
+                tintOverride: SIMD4<Float>(wTint.x, wTint.y, wTint.z, 0.14)
+            )
+            count += 1
+        }
+
+        // [5] & [6] Hero Liquid Lens (+ Optional Fused Companion Droplet)
+        let fuseActive = metaballFusionEnabled && (companionReveal > 0.01) && (count + 1 < 11)
         elementUniforms[count] = GlassElementUniform(
             centerAndHalfSize: SIMD4<Float>(
                 Float(lensPosition.x),
@@ -684,20 +1077,32 @@ final class GlassSceneController {
                 Float(lensCornerRadius),
                 lensStretchAngle,
                 lensStretchFactor,
-                isDraggingLens ? 1.28 : 1.15
+                isDraggingLens ? 1.30 : 1.16
             ),
-            styleParams: SIMD4<Float>(1.0, 1.0, 0.0, isDraggingLens ? 1.32 : 1.02),
-            tintOverride: SIMD4<Float>(0.0, 0.0, 0.0, 0.0)
+            styleParams: SIMD4<Float>(1.0, 1.02, 0.0, isDraggingLens ? 1.34 : 1.02),
+            tintOverride: SIMD4<Float>(0.0, 0.0, 0.0, fuseActive ? -1.0 : 0.0)
         )
         count += 1
 
-        // [4] Studio Settings Drawer (slides up cleanly above Dock when open)
-        if drawerReveal > 0.005 {
+        if companionReveal > 0.01 && count < 11 {
+            let compScale = Float(0.35 + 0.65 * min(1.0, companionReveal))
+            let r = Float(companionRadius) * compScale
+            elementUniforms[count] = GlassElementUniform(
+                centerAndHalfSize: SIMD4<Float>(Float(companionPosition.x), Float(companionPosition.y), r, r),
+                shapeAndTransform: SIMD4<Float>(r, companionStretchAngle, companionStretchFactor, isDraggingCompanion ? 1.32 : 1.18),
+                styleParams: SIMD4<Float>(Float(min(1.0, companionReveal)), 1.08, -0.25, isDraggingCompanion ? 1.30 : 1.0),
+                tintOverride: SIMD4<Float>(0.35, 0.92, 1.0, 0.05)
+            )
+            count += 1
+        }
+
+        // [7] Optical Studio Drawer (Zone 4)
+        if drawerReveal > 0.005 && count < 11 {
             let dScale = Float(0.92 + 0.08 * drawerReveal)
-            let drawerH: Float = 352.0
+            let drawerH: Float = 360.0
             let drawerHalfW = (min(w - 24.0, 366.0) * 0.5) * dScale
             let drawerHalfH = (drawerH * 0.5) * dScale
-            let drawerBaseY = h - Float(safeBottomInset) - 82.0 - drawerH * 0.5
+            let drawerBaseY = h - Float(safeBottomInset) - 86.0 - drawerH * 0.5
             let slideOffset = (1.0 - Float(min(1.0, drawerReveal))) * 44.0
             elementUniforms[count] = GlassElementUniform(
                 centerAndHalfSize: SIMD4<Float>(w * 0.5, drawerBaseY + slideOffset, drawerHalfW, drawerHalfH),
@@ -708,38 +1113,51 @@ final class GlassSceneController {
             count += 1
         }
 
+        // [Last] Native Sliding Dock Crystal Jelly Magnifier Pill/Droplet!
+        if count < 12 {
+            let lift = min(1.25, max(0.0, dockThumbLift))
+            let slotW = (dockW - 16.0) / Float(DockTab.allCases.count)
+            let restHalfW = slotW * 0.46
+            let restHalfH: Float = 26.0
+            let liftedHalfW = restHalfW * (1.0 + 0.34 * lift)
+            let liftedHalfH = restHalfH * (1.0 + 0.34 * lift)
+
+            // At rest: soft luminous pill; while scrubbing: crystal-clear magnifying droplet!
+            let thumbOpacity = 0.52 + 0.46 * min(1.0, lift)
+            let thumbRefScale = 0.42 + 0.92 * min(1.0, lift)
+            let thumbFrostBoost = -4.2 * min(1.0, lift)
+            let thumbRim = 0.95 + 0.62 * min(1.0, lift)
+            let thumbElev = 0.35 + 1.15 * min(1.0, lift)
+
+            elementUniforms[count] = GlassElementUniform(
+                centerAndHalfSize: SIMD4<Float>(dockThumbPos.x, dockThumbPos.y, liftedHalfW, liftedHalfH),
+                shapeAndTransform: SIMD4<Float>(liftedHalfH, 0.0, dockThumbStretch, thumbRim),
+                styleParams: SIMD4<Float>(thumbOpacity, thumbRefScale, thumbFrostBoost, thumbElev),
+                tintOverride: SIMD4<Float>(0.35, 0.92, 1.0, isPullingUpToPin ? 0.28 : (0.08 * (1.0 - min(1.0, lift))))
+            )
+            count += 1
+        }
+
         sceneUniforms = SceneUniforms(
             viewportAndTime: SIMD4<Float>(w, h, elapsed, Float(wallpaper.rawValue)),
             opticalParams: SIMD4<Float>(Float(refraction), Float(bezel), Float(dispersion), Float(frost)),
             lightingParams: SIMD4<Float>(normLight.x, normLight.y, Float(tintMode.rawValue), Float(sceneBrightness)),
             spotlightParams: SIMD4<Float>(spotOrigin.x, spotOrigin.y, -normLight.x * 0.45, spotlightAnim),
-            layerFlags: SIMD4<Float>(Float(count), hasCustomPhoto ? 1.0 : 0.0, customPhotoAspect, textMix)
+            layerFlags: SIMD4<Float>(Float(count), hasCustomPhoto ? 1.0 : 0.0, customPhotoAspect, textMix),
+            rippleParams: SIMD4<Float>(rippleCenter.x, rippleCenter.y, rippleRadius, rippleStrength),
+            atmosphereParams: SIMD4<Float>(solarWarmth, prismRimBoostEnabled ? 1.38 : 1.0, 38.0, 0.0)
         )
     }
 
     // MARK: - Damped Harmonic Spring Integrators
 
-    private func stepSpring1D(
-        pos: inout Float,
-        vel: inout Float,
-        target: Float,
-        omega: Float,
-        zeta: Float,
-        dt: Float
-    ) {
+    private func stepSpring1D(pos: inout Float, vel: inout Float, target: Float, omega: Float, zeta: Float, dt: Float) {
         let force = -omega * omega * (pos - target) - 2.0 * zeta * omega * vel
         vel += force * dt
         pos += vel * dt
     }
 
-    private func stepSpring2D(
-        pos: inout SIMD2<Float>,
-        vel: inout SIMD2<Float>,
-        target: SIMD2<Float>,
-        omega: Float,
-        zeta: Float,
-        dt: Float
-    ) {
+    private func stepSpring2D(pos: inout SIMD2<Float>, vel: inout SIMD2<Float>, target: SIMD2<Float>, omega: Float, zeta: Float, dt: Float) {
         let force = -omega * omega * (pos - target) - 2.0 * zeta * omega * vel
         vel += force * dt
         pos += vel * dt

@@ -4,7 +4,7 @@ import simd
 // MARK: - Shared GPU Uniforms (100% 16-Byte SIMD4 Aligned with Shaders.metal)
 
 /// Global scene uniforms passed to `liquidGlassFragment` at `[[buffer(0)]]`.
-/// Uses exclusively `SIMD4<Float>` (`float4` in Metal) to guarantee identical 80-byte ABI layout.
+/// Uses exclusively `SIMD4<Float>` (`float4` in Metal) to guarantee identical 112-byte ABI layout.
 struct SceneUniforms {
     /// x: viewportWidth (pt), y: viewportHeight (pt), z: elapsedTime (s), w: wallpaperMode (0..4)
     var viewportAndTime: SIMD4<Float> = .zero
@@ -16,6 +16,10 @@ struct SceneUniforms {
     var spotlightParams: SIMD4<Float> = .zero
     /// x: elementCount, y: hasCustomPhoto (0/1), z: photoAspect (w/h), w: textOverlayMix (0..1)
     var layerFlags: SIMD4<Float> = .zero
+    /// x: rippleCenter.x (pt), y: rippleCenter.y (pt), z: rippleRadius (pt), w: rippleStrength (0..1)
+    var rippleParams: SIMD4<Float> = .zero
+    /// x: solarWarmth (-1..1), y: globalRimBoost (1..1.6), z: fusionSmoothness (pt), w: reserved
+    var atmosphereParams: SIMD4<Float> = .zero
 }
 
 /// Per-element liquid glass descriptor passed at `[[buffer(1)]]`.
@@ -27,8 +31,49 @@ struct GlassElementUniform {
     var shapeAndTransform: SIMD4<Float> = .zero
     /// x: opacity (0..1), y: refractionScale, z: frostBoost, w: shadowElevation
     var styleParams: SIMD4<Float> = .zero
-    /// xyz: accentRGB, w: accentStrength (0..1)
+    /// xyz: accentRGB, w: accentStrength (negative `-1.0` marks Metaball Fusion Pair leader)
     var tintOverride: SIMD4<Float> = .zero
+}
+
+// MARK: - Bottom Native Liquid Glass Dock Tabs
+
+enum DockTab: Int, CaseIterable, Identifiable {
+    case lensLab = 0
+    case musicBeat = 1
+    case controlHub = 2
+    case weatherSolar = 3
+    case opticalStudio = 4
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .lensLab: return "探索"
+        case .musicBeat: return "音樂"
+        case .controlHub: return "控制"
+        case .weatherSolar: return "天氣"
+        case .opticalStudio: return "工坊"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .lensLab: return "drop.halffull"
+        case .musicBeat: return "waveform"
+        case .controlHub: return "switch.2"
+        case .weatherSolar: return "cloud.sun.fill"
+        case .opticalStudio: return "slider.horizontal.3"
+        }
+    }
+
+    var supportsPinning: Bool {
+        switch self {
+        case .musicBeat, .controlHub, .weatherSolar:
+            return true
+        case .lensLab, .opticalStudio:
+            return false
+        }
+    }
 }
 
 // MARK: - Presets & Domain Models
@@ -94,13 +139,10 @@ enum GlassTintMode: Int, CaseIterable, Identifiable {
         }
     }
 
-    /// Adaptive high-contrast foreground color for text and SF Symbols over glass cards.
     func primaryTextColor(over wallpaper: WallpaperPreset) -> Color {
         switch self {
         case .light:
-            return wallpaper.isBrightBackground
-                ? Color(red: 0.08, green: 0.11, blue: 0.18)
-                : Color(red: 0.09, green: 0.12, blue: 0.20)
+            return Color(red: 0.08, green: 0.11, blue: 0.18)
         case .clear:
             return wallpaper.isBrightBackground
                 ? Color(red: 0.10, green: 0.13, blue: 0.22)
@@ -170,17 +212,17 @@ enum LensShapeMode: Int, CaseIterable, Identifiable {
 
     var baseHalfSize: SIMD2<Float> {
         switch self {
-        case .circle: return SIMD2<Float>(94.0, 94.0)
-        case .pill: return SIMD2<Float>(144.0, 64.0)
-        case .squircle: return SIMD2<Float>(104.0, 104.0)
+        case .circle: return SIMD2<Float>(90.0, 90.0)
+        case .pill: return SIMD2<Float>(140.0, 62.0)
+        case .squircle: return SIMD2<Float>(100.0, 100.0)
         }
     }
 
     var baseCornerRadius: Float {
         switch self {
-        case .circle: return 94.0
-        case .pill: return 64.0
-        case .squircle: return 32.0
+        case .circle: return 90.0
+        case .pill: return 62.0
+        case .squircle: return 30.0
         }
     }
 
@@ -189,6 +231,87 @@ enum LensShapeMode: Int, CaseIterable, Identifiable {
         let idx = (rawValue + 1) % all.count
         return all[idx]
     }
+}
+
+// MARK: - Spatial Weather Condition Model
+
+enum WeatherCondition: Int, CaseIterable, Identifiable {
+    case sunny = 0
+    case rain = 1
+    case snow = 2
+    case neonMist = 3
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .sunny: return "晴朗"
+        case .rain: return "陣雨"
+        case .snow: return "極光雪"
+        case .neonMist: return "霓虹霧"
+        }
+    }
+
+    var citySubtitle: String {
+        switch self {
+        case .sunny: return "台北 · 能見度極佳"
+        case .rain: return "東京 · 液態雨滴折射"
+        case .snow: return "雷克雅維克 · 冰晶色散"
+        case .neonMist: return "舊金山 · 柔霧漫射"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .sunny: return "sun.max.fill"
+        case .rain: return "cloud.rain.fill"
+        case .snow: return "snowflake"
+        case .neonMist: return "cloud.fog.fill"
+        }
+    }
+
+    var baseTemp: Int {
+        switch self {
+        case .sunny: return 26
+        case .rain: return 19
+        case .snow: return -2
+        case .neonMist: return 16
+        }
+    }
+
+    var humidity: String {
+        switch self {
+        case .sunny: return "46%"
+        case .rain: return "88%"
+        case .snow: return "72%"
+        case .neonMist: return "91%"
+        }
+    }
+
+    var shaderTint: SIMD3<Float> {
+        switch self {
+        case .sunny: return SIMD3<Float>(1.0, 0.78, 0.32)
+        case .rain: return SIMD3<Float>(0.26, 0.66, 1.0)
+        case .snow: return SIMD3<Float>(0.68, 0.94, 1.0)
+        case .neonMist: return SIMD3<Float>(0.76, 0.42, 1.0)
+        }
+    }
+}
+
+// MARK: - Synth Beat Pad & Music Models
+
+struct BeatPadItem: Identifiable {
+    let id: Int
+    let name: String
+    let icon: String
+    let color: Color
+
+    static let pads: [BeatPadItem] = [
+        BeatPadItem(id: 0, name: "Sub Wave", icon: "dot.radiowaves.left.and.right", color: Color(red: 0.22, green: 0.88, blue: 1.0)),
+        BeatPadItem(id: 1, name: "Prism Arp", icon: "sparkles", color: Color(red: 1.0, green: 0.36, blue: 0.66)),
+        BeatPadItem(id: 2, name: "Glass Bell", icon: "bell.and.waves.left.and.right.fill", color: Color(red: 0.56, green: 0.44, blue: 1.0)),
+        BeatPadItem(id: 3, name: "Solar Kick", icon: "waveform.path.ecg", color: Color(red: 1.0, green: 0.68, blue: 0.24))
+    ]
 }
 
 struct MusicTrack: Identifiable {
