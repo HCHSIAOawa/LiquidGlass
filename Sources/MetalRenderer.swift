@@ -4,8 +4,7 @@ import Metal
 import MetalKit
 import QuartzCore
 
-// MARK: - SwiftUI Representable Wrapping 120Hz MTKView
-
+@MainActor
 struct MetalLiquidGlassView: UIViewRepresentable {
     let controller: GlassSceneController
 
@@ -36,8 +35,7 @@ struct MetalLiquidGlassView: UIViewRepresentable {
     }
 }
 
-// MARK: - Single-Pass Pure GPU Metal Renderer
-
+@MainActor
 final class MetalRenderer: NSObject, MTKViewDelegate {
     let device: MTLDevice?
     private let commandQueue: MTLCommandQueue?
@@ -80,8 +78,6 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         pipelineState = try? device.makeRenderPipelineState(descriptor: desc)
     }
 
-    // MARK: - Static Seamless Scrolling Typography Texture (Mipmapped)
-
     private func buildScrollingTypographyTexture(device: MTLDevice) -> MTLTexture? {
         let texW = 2048
         let texH = 1024
@@ -106,7 +102,6 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             return nil
         }
 
-        // Flip to UIKit top-down coordinates so NSAttributedString draws upright
         ctx.translateBy(x: 0, y: CGFloat(texH))
         ctx.scaleBy(x: 1.0, y: -1.0)
         UIGraphicsPushContext(ctx)
@@ -119,8 +114,8 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             roundedFont = baseFont
         }
 
-        let evenPhrase = "LIQUID GLASS · REFRACTION · METAL 120HZ · SPECULAR · "
-        let oddPhrase  = "DISPERSION · PRO MOTION · CAUSTICS · APPLE DESIGN · "
+        let evenPhrase = "LIQUID GLASS · IOS 27 NATIVE · METAL 120HZ · "
+        let oddPhrase  = "DYNAMIC ISLAND · PRO MOTION · METABALL · "
 
         for row in 0..<rowCount {
             let isEven = (row % 2 == 0)
@@ -142,7 +137,6 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             ctx.saveGState()
             let rowTop = CGFloat(row) * rowHeight
             let yOffset = rowTop + (rowHeight - naturalSize.height) * 0.5
-            // Scale horizontally so one full phrase tiles across exact 2048px with zero wrap seam
             let scaleX = CGFloat(texW) / naturalSize.width
             ctx.translateBy(x: 0, y: yOffset)
             ctx.scaleBy(x: scaleX, y: 1.0)
@@ -151,11 +145,8 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         }
 
         UIGraphicsPopContext()
-
         return makeMipmappedTexture(device: device, width: texW, height: texH, bytes: rawBytes)
     }
-
-    // MARK: - Custom Photo Texture Upload (Mipmapped)
 
     private func uploadCustomPhotoIfNeeded(device: MTLDevice) {
         guard controller.customPhotoRevision != uploadedPhotoRevision else { return }
@@ -235,8 +226,6 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         return tex
     }
 
-    // MARK: - MTKViewDelegate (120Hz Render Loop)
-
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
@@ -248,7 +237,6 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             return
         }
 
-        // Step 120Hz physics & build uniform buffers in lockstep with vsync
         controller.stepFrame(now: CACurrentMediaTime(), drawablePointSize: view.bounds.size)
         uploadCustomPhotoIfNeeded(device: device)
 
@@ -275,7 +263,6 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         encoder.setFragmentTexture(textTexture ?? fallbackTexture, index: 0)
         encoder.setFragmentTexture(photoTexture ?? fallbackTexture, index: 1)
 
-        // Single full-screen triangle (3 vertices, zero overdraw along screen diagonal)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
 

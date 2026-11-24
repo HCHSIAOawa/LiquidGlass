@@ -1,14 +1,12 @@
-# LiquidGlass — Native 120Hz ProMotion iOS Playground (SwiftUI + MetalKit)
+# LiquidGlass 3.0 — iOS 27 Native Liquid Glass + Metal 120Hz Hybrid Engine & Dynamic Island
 
-將 Web 版 Liquid Glass Playground 完整重構為純 GPU 單通道渲染（Single-Pass `MTKView`）的 iOS 17+ 原生應用，專為 iPhone 120Hz ProMotion 螢幕打造。
+專為 **iPhone 18 Pro (iOS 27 / 120Hz ProMotion)** 打造的雙引擎液態玻璃互動實驗室，完整相容 GitHub Actions 雲端編譯未簽章 IPA 與免費 Apple ID 側載（Impactor，零 App Groups 依賴）。
 
-## 核心亮點
+## 核心特色
 
-- **原生級底部「液態果凍放大拖移導覽列」(`NativeLiquidDockOverlay`)**：
-  - 按住底部導覽列左右拖移時，選取膠囊即時膨脹為**純清透凸透鏡果凍水滴**（Metal 即時折射 + 彩虹色散 + 速度拉伸形變），滑過圖示時同步產生凸面鏡光學放大與視差位移，向上拉出更可將卡片「釘選固定」達成多視窗同場折射。
-- **5 大液態玻璃互動專區**：
-  1. **探索透鏡 · 雙水滴融合實驗室**：支援雙水滴 Smooth-Min (`smin`) 液態表面張力融合與拉斷水波、真實加速度計重力滾動、雙指縮放與雙擊變形。
-  2. **音樂動態島 · 節拍觸控墊**：跳動音頻柱、曲目切換與 4 顆液態音色擊墊（點擊即觸發全螢幕 GPU 折射水波震盪）。
-  3. **液態控制中樞**：聚光燈手電筒、陀螺儀反光、重力場開關，以及按壓拖曳會膨脹為透明果凍鏡片的 **原生級果凍切換開關 (`LiquidJellyToggle`)**。
-  4. **空間天氣與日晷軌跡卡**：互動式 24 小時日照軌跡果凍滑桿（即時改變全場色溫：晨曦暖金 ↔ 正午清透 ↔ 午夜深藍）與 4 種氣候情境。
-  5. **光學與材質工作坊**：4 款程序化動態桌布 + `PhotosPicker` 相簿匯入、3 種玻璃材質色調，以及 4 組果凍放大滑塊（`LiquidJellySlider`）。
+1. **雙引擎即時切換架構（`iOS 27 原生玻璃 ↔ Metal 120Hz 自訂光學`）**：
+   - 原生模式採用 `GlassEffectContainer(spacing:)`、`.glassEffect(.clear/.regular.interactive())`、`glassEffectID(_:in:)`、`glassEffectUnion(id:namespace:)` 與 `.buttonStyle(.glass)` / `.buttonStyle(.glassProminent)`，由 iOS 系統合成器即時折射底層 120fps Metal 極光、水波與相簿桌布。
+   - 一鍵切換自訂 Metal 光學引擎，即時對比雙區凸透鏡折射、RGB 色散與磨砂參數。
+2. **iPhone 18 Pro 動態島雙層互動**：
+   - **App 前景硬體動態島融合**：將水滴拖近動態島即可觸發磁吸 Smooth-Min 拉絲吸入、從動態島向下拉出吐出水滴或液態卡片、點擊動態島一鍵液態收納/噴發所有視窗，並搭載 `CHHapticEngine` 專屬「吸入、拉絲斷裂、彈性撞牆」三種觸覺波形。
+   - **系統級動態島即時動態 (`ActivityKit` + `LiveActivityIntent`)**：內建 `LiquidGlassWidget.appex` 支援 Compact / Minimal / Expanded / 鎖定畫面橫幅，即使滑回桌面也能直接在系統動態島切換桌布、控制播放與發射液態水波。

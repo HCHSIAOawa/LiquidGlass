@@ -1,11 +1,11 @@
 import SwiftUI
 import simd
 
-// MARK: - Shared GPU Uniforms (100% 16-Byte SIMD4 Aligned with Shaders.metal)
+// MARK: - Shared GPU Uniforms (100% 16-Byte SIMD4 Aligned & Sendable)
 
 /// Global scene uniforms passed to `liquidGlassFragment` at `[[buffer(0)]]`.
-/// Uses exclusively `SIMD4<Float>` (`float4` in Metal) to guarantee identical 112-byte ABI layout.
-struct SceneUniforms {
+/// 8 x SIMD4<Float> = 128 bytes exact layout matching `Shaders.metal`.
+struct SceneUniforms: Sendable {
     /// x: viewportWidth (pt), y: viewportHeight (pt), z: elapsedTime (s), w: wallpaperMode (0..4)
     var viewportAndTime: SIMD4<Float> = .zero
     /// x: refraction (pt), y: bezel (pt), z: dispersion (0..0.3), w: frost (0..4.0)
@@ -18,26 +18,62 @@ struct SceneUniforms {
     var layerFlags: SIMD4<Float> = .zero
     /// x: rippleCenter.x (pt), y: rippleCenter.y (pt), z: rippleRadius (pt), w: rippleStrength (0..1)
     var rippleParams: SIMD4<Float> = .zero
-    /// x: solarWarmth (-1..1), y: globalRimBoost (1..1.6), z: fusionSmoothness (pt), w: reserved
+    /// x: solarWarmth (-1..1), y: globalRimBoost (1..1.6), z: fusionSmoothness (pt), w: islandFusionActive (0/1)
     var atmosphereParams: SIMD4<Float> = .zero
+    /// x: islandCenterX (pt), y: islandCenterY (pt), z: islandHaloScale (0..1.5), w: islandPullStretch (pt)
+    var islandParams: SIMD4<Float> = .zero
 }
 
 /// Per-element liquid glass descriptor passed at `[[buffer(1)]]`.
-/// Uses exclusively `SIMD4<Float>` (`float4` in Metal) to guarantee identical 64-byte stride.
-struct GlassElementUniform {
+/// 4 x SIMD4<Float> = 64 bytes exact layout matching `Shaders.metal`.
+struct GlassElementUniform: Sendable {
     /// x: center.x (pt), y: center.y (pt), z: halfSize.x (pt), w: halfSize.y (pt)
     var centerAndHalfSize: SIMD4<Float> = .zero
     /// x: cornerRadius (pt), y: stretchAngle (rad), z: stretchFactor (>=1), w: rimBoost
     var shapeAndTransform: SIMD4<Float> = .zero
     /// x: opacity (0..1), y: refractionScale, z: frostBoost, w: shadowElevation
     var styleParams: SIMD4<Float> = .zero
-    /// xyz: accentRGB, w: accentStrength (negative `-1.0` marks Metaball Fusion Pair leader)
+    /// xyz: accentRGB, w: accentStrength (-1.0 = Dual-Droplet Fusion leader, -2.0 = Island-Fusable Hero Droplet)
     var tintOverride: SIMD4<Float> = .zero
+}
+
+// MARK: - Dual Rendering Engine Mode (iOS 27 Native Compositor vs Custom Metal Optics)
+
+enum GlassEngineMode: Int, CaseIterable, Identifiable, Sendable {
+    case nativeAppleGlass = 0
+    case customMetalOptics = 1
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .nativeAppleGlass: return "iOS 原生玻璃"
+        case .customMetalOptics: return "Metal 光學"
+        }
+    }
+
+    var badgeLabel: String {
+        switch self {
+        case .nativeAppleGlass: return "iOS 27 原生"
+        case .customMetalOptics: return "Metal 120Hz"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .nativeAppleGlass: return "apple.logo"
+        case .customMetalOptics: return "sparkles.tv"
+        }
+    }
+
+    func toggled() -> GlassEngineMode {
+        self == .nativeAppleGlass ? .customMetalOptics : .nativeAppleGlass
+    }
 }
 
 // MARK: - Bottom Native Liquid Glass Dock Tabs
 
-enum DockTab: Int, CaseIterable, Identifiable {
+enum DockTab: Int, CaseIterable, Identifiable, Sendable {
     case lensLab = 0
     case musicBeat = 1
     case controlHub = 2
@@ -78,7 +114,7 @@ enum DockTab: Int, CaseIterable, Identifiable {
 
 // MARK: - Presets & Domain Models
 
-enum WallpaperPreset: Int, CaseIterable, Identifiable {
+enum WallpaperPreset: Int, CaseIterable, Identifiable, Sendable {
     case aurora = 0
     case rainbowStripes = 1
     case sunsetRings = 2
@@ -116,7 +152,7 @@ enum WallpaperPreset: Int, CaseIterable, Identifiable {
     }
 }
 
-enum GlassTintMode: Int, CaseIterable, Identifiable {
+enum GlassTintMode: Int, CaseIterable, Identifiable, Sendable {
     case clear = 0
     case light = 1
     case dark = 2
@@ -177,9 +213,17 @@ enum GlassTintMode: Int, CaseIterable, Identifiable {
             return Color.white.opacity(0.24)
         }
     }
+
+    var nativeTintOverlay: Color? {
+        switch self {
+        case .clear: return nil
+        case .light: return Color.white.opacity(0.22)
+        case .dark: return Color(red: 0.04, green: 0.07, blue: 0.15).opacity(0.45)
+        }
+    }
 }
 
-enum LensShapeMode: Int, CaseIterable, Identifiable {
+enum LensShapeMode: Int, CaseIterable, Identifiable, Sendable {
     case circle = 0
     case pill = 1
     case squircle = 2
@@ -212,16 +256,16 @@ enum LensShapeMode: Int, CaseIterable, Identifiable {
 
     var baseHalfSize: SIMD2<Float> {
         switch self {
-        case .circle: return SIMD2<Float>(90.0, 90.0)
-        case .pill: return SIMD2<Float>(140.0, 62.0)
-        case .squircle: return SIMD2<Float>(100.0, 100.0)
+        case .circle: return SIMD2<Float>(88.0, 88.0)
+        case .pill: return SIMD2<Float>(138.0, 60.0)
+        case .squircle: return SIMD2<Float>(98.0, 98.0)
         }
     }
 
     var baseCornerRadius: Float {
         switch self {
-        case .circle: return 90.0
-        case .pill: return 62.0
+        case .circle: return 88.0
+        case .pill: return 60.0
         case .squircle: return 30.0
         }
     }
@@ -235,7 +279,7 @@ enum LensShapeMode: Int, CaseIterable, Identifiable {
 
 // MARK: - Spatial Weather Condition Model
 
-enum WeatherCondition: Int, CaseIterable, Identifiable {
+enum WeatherCondition: Int, CaseIterable, Identifiable, Sendable {
     case sunny = 0
     case rain = 1
     case snow = 2
@@ -298,9 +342,7 @@ enum WeatherCondition: Int, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Synth Beat Pad & Music Models
-
-struct BeatPadItem: Identifiable {
+struct BeatPadItem: Identifiable, Sendable {
     let id: Int
     let name: String
     let icon: String
@@ -314,7 +356,7 @@ struct BeatPadItem: Identifiable {
     ]
 }
 
-struct MusicTrack: Identifiable {
+struct MusicTrack: Identifiable, Sendable {
     let id: Int
     let title: String
     let artist: String

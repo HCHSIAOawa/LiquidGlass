@@ -10,22 +10,21 @@ struct SceneUniforms {
     float4 spotlightParams;   // x: originX, y: originY, z: dirX, w: strength (0..1)
     float4 layerFlags;        // x: elementCount, y: hasCustomPhoto, z: photoAspect, w: textOverlayMix
     float4 rippleParams;      // x: rippleCenterX, y: rippleCenterY, z: rippleRadiusPt, w: rippleStrength
-    float4 atmosphereParams;  // x: solarWarmth (-1..1), y: globalRimBoost, z: fusionK (pt), w: reserved
+    float4 atmosphereParams;  // x: solarWarmth (-1..1), y: globalRimBoost, z: fusionK (pt), w: islandFusionEnabled
+    float4 islandParams;      // x: islandCenterX, y: islandCenterY, z: islandHaloScale, w: islandPullStretchPt
 };
 
 struct GlassElementUniform {
     float4 centerAndHalfSize; // xy: centerPt, zw: halfSizePt
     float4 shapeAndTransform; // x: cornerRadiusPt, y: stretchAngleRad, z: stretchFactor, w: rimBoost
     float4 styleParams;       // x: opacity, y: refractionScale, z: frostBoost, w: shadowElevation
-    float4 tintOverride;      // xyz: accentRGB, w: accentStrength (-1.0f = Metaball Fusion Pair leader)
+    float4 tintOverride;      // xyz: accentRGB, w: accentStrength (-1.0f = Dual-Droplet Fusion leader)
 };
 
 struct VertexOut {
     float4 position [[position]];
     float2 uv;
 };
-
-// MARK: - Full-Screen Triangle Vertex Shader (Zero Vertex Buffer Overhead)
 
 vertex VertexOut liquidGlassVertex(uint vid [[vertex_id]]) {
     VertexOut out;
@@ -35,15 +34,13 @@ vertex VertexOut liquidGlassVertex(uint vid [[vertex_id]]) {
     return out;
 }
 
-// MARK: - Fast Procedural Noise & Hash
-
 static inline float hash12(float2 p) {
     float3 p3 = fract(float3(p.xyx) * 0.1031f);
     p3 += dot(p3, p3.yzx + 33.33f);
     return fract((p3.x + p3.y) * p3.z);
 }
 
-// MARK: - Procedural Wallpaper Generators (Zero Offscreen Blur Cost)
+// MARK: - Procedural Wallpaper Generators
 
 static inline float3 wallpaperAurora(float2 uv, float aspect, float t) {
     float2 p = float2((uv.x - 0.5f) * aspect, uv.y - 0.5f);
@@ -147,8 +144,6 @@ static inline float3 wallpaperMinimalGrid(float2 posPt, float2 viewport, float f
     return col;
 }
 
-// MARK: - Interactive Water Shockwave Ripple Displacement
-
 static inline float2 applyShockwaveRipple(float2 samplePt, constant SceneUniforms &scene) {
     float strength = scene.rippleParams.w;
     if (strength <= 0.002f) {
@@ -160,12 +155,10 @@ static inline float2 applyShockwaveRipple(float2 samplePt, constant SceneUniform
     if (abs(ringDist) > 48.0f || dist < 1.0f) {
         return samplePt;
     }
-    float envelope = exp(- (ringDist * ringDist) * 0.0028f) * strength;
+    float envelope = exp(-(ringDist * ringDist) * 0.0028f) * strength;
     float wave = sin(ringDist * 0.22f) * envelope * 22.0f;
     return samplePt + (delta / dist) * wave;
 }
-
-// MARK: - Composite Background + UV-Scrolled Typography Texture + Custom Photo
 
 static inline float3 sampleSceneBackground(
     float2 rawSamplePt,
@@ -229,7 +222,6 @@ static inline float3 sampleSceneBackground(
         }
     }
 
-    // Apply optional Spatial Weather solar hour color temperature shift
     float warmth = scene.atmosphereParams.x;
     if (abs(warmth) > 0.01f) {
         float3 tint = warmth > 0.0f
@@ -240,8 +232,6 @@ static inline float3 sampleSceneBackground(
 
     return bg * scene.lightingParams.w;
 }
-
-// MARK: - Frosted + Chromatically Dispersed Background Sampler
 
 static inline float3 sampleFrostedRefraction(
     float2 posR,
@@ -281,8 +271,6 @@ static inline float3 sampleFrostedRefraction(
     );
     return float3(r, g, b);
 }
-
-// MARK: - Incompressible Liquid Squash & Stretch SDF + Analytical Normal
 
 static inline float2 applyLiquidDeform(float2 rel, float2 uDir, float stretch) {
     float2 vDir = float2(-uDir.y, uDir.x);
@@ -331,8 +319,6 @@ static inline float3 sdAndNormalDeformedBox(
     return float3(sd, n.x, n.y);
 }
 
-// MARK: - Volumetric Spotlight Cone
-
 static inline float evaluateSpotlight(float2 posPt, constant SceneUniforms &scene) {
     float strength = scene.spotlightParams.w;
     if (strength <= 0.002f) {
@@ -349,7 +335,47 @@ static inline float evaluateSpotlight(float2 posPt, constant SceneUniforms &scen
     return (beam + halo) * strength;
 }
 
-// MARK: - Single-Pass Multi-Element Liquid Glass Fragment Shader (120fps Target)
+// MARK: - Hardware Dynamic Island Liquid SDF (Audio Halo + Downward Pull Tether)
+
+static inline float3 evaluateHardwareIslandSDF(float2 posPt, constant SceneUniforms &scene) {
+    float2 islandCenter = scene.islandParams.xy;
+    float halo = scene.islandParams.z;
+    float pullStretch = scene.islandParams.w;
+    float t = scene.viewportAndTime.z;
+
+    // Subtle audio breathing wave along Dynamic Island contour
+    float wave = sin(posPt.x * 0.09f + t * 5.2f) * 1.8f * min(1.0f, halo);
+    float2 baseHalf = float2(64.0f + halo * 12.0f, 18.5f + halo * 5.5f + wave * 0.45f);
+    float3 sdnIsland = sdAndNormalDeformedBox(
+        posPt - islandCenter,
+        baseHalf,
+        baseHalf.y,
+        float2(1.0f, 0.0f),
+        1.0f
+    );
+
+    if (pullStretch > 1.0f) {
+        float2 budCenter = islandCenter + float2(0.0f, pullStretch * 0.78f);
+        float budRadius = max(14.0f, 26.0f - pullStretch * 0.08f);
+        float3 sdnBud = sdAndNormalDeformedBox(
+            posPt - budCenter,
+            float2(budRadius, budRadius * 1.18f),
+            budRadius,
+            float2(0.0f, 1.0f),
+            1.15f
+        );
+        float k = 30.0f;
+        float h = clamp(0.5f + 0.5f * (sdnBud.x - sdnIsland.x) / k, 0.0f, 1.0f);
+        float mergedSD = mix(sdnBud.x, sdnIsland.x, h) - k * h * (1.0f - h);
+        float2 mergedN = mix(sdnBud.yz, sdnIsland.yz, h);
+        float lenN = length(mergedN);
+        return float3(mergedSD, lenN > 1e-4f ? (mergedN / lenN) : float2(0.0f, 1.0f));
+    }
+
+    return sdnIsland;
+}
+
+// MARK: - Single-Pass Multi-Element + Dynamic Island Fusion Fragment Shader
 
 fragment float4 liquidGlassFragment(
     VertexOut in [[stage_in]],
@@ -361,10 +387,8 @@ fragment float4 liquidGlassFragment(
     float2 viewport = max(scene.viewportAndTime.xy, float2(1.0f));
     float2 posPt = in.uv * viewport;
 
-    // 1. Base procedural/photo wallpaper + UV-scrolled typography + water ripple
     float3 color = sampleSceneBackground(posPt, 0.0f, scene, textTex, photoTex);
 
-    // Subtle specular ring highlight along expanding water shockwave
     if (scene.rippleParams.w > 0.005f) {
         float rDist = abs(length(posPt - scene.rippleParams.xy) - scene.rippleParams.z);
         if (rDist < 24.0f) {
@@ -373,7 +397,6 @@ fragment float4 liquidGlassFragment(
         }
     }
 
-    // 2. Optional Mini Control Center volumetric spotlight beam
     float spotVal = evaluateSpotlight(posPt, scene);
     if (spotVal > 0.001f) {
         color += float3(0.94f, 0.97f, 1.0f) * (spotVal * 0.48f);
@@ -391,10 +414,39 @@ fragment float4 liquidGlassFragment(
     int wallpaperMode = int(scene.viewportAndTime.w + 0.5f);
     float globalRimScale = max(0.8f, scene.atmosphereParams.y);
     float fusionK = max(4.0f, scene.atmosphereParams.z);
+    bool islandFusionEnabled = (scene.atmosphereParams.w > 0.5f);
+
+    // Render Standalone Dynamic Island Liquid Halo & Downward Pull Tether when active near top
+    if (posPt.y < 230.0f && (scene.islandParams.z > 0.02f || scene.islandParams.w > 1.0f)) {
+        float3 islandSDN = evaluateHardwareIslandSDF(posPt, scene);
+        float isd = islandSDN.x;
+        if (isd < 1.2f) {
+            float2 inorm = islandSDN.yz;
+            float idist = max(0.0f, -isd);
+            float ibz = 16.0f;
+            float it = clamp(idist / ibz, 0.0f, 1.0f);
+            float imen = pow(1.0f - it, 2.2f);
+            float2 idisp = -inorm * imen * globalRefraction * 0.85f;
+            float3 iref = sampleFrostedRefraction(
+                posPt + idisp * 1.12f,
+                posPt + idisp,
+                posPt + idisp * 0.88f,
+                0.22f,
+                in.position.xy,
+                scene,
+                textTex,
+                photoTex
+            );
+            float irim = smoothstep(2.6f, 0.0f, idist) * 1.25f;
+            float3 haloGlow = mix(float3(0.24f, 0.88f, 1.0f), float3(0.66f, 0.42f, 1.0f), clamp(posPt.x / viewport.x, 0.0f, 1.0f));
+            float3 islandGlass = iref + haloGlow * (irim * 0.72f + imen * 0.25f);
+            float imask = smoothstep(0.95f, -0.75f, isd);
+            color = mix(color, clamp(islandGlass, 0.0f, 1.0f), imask);
+        }
+    }
 
     int elemCount = clamp(int(scene.layerFlags.x + 0.5f), 0, 12);
 
-    // 3. Single-pass multi-glass evaluation (supports analytical Smooth-Min Metaball Fusion!)
     for (int i = 0; i < elemCount; ++i) {
         GlassElementUniform elem = elements[i];
         float elemOpacity = elem.styleParams.x;
@@ -402,7 +454,8 @@ fragment float4 liquidGlassFragment(
             continue;
         }
 
-        bool isMetaballLeader = (elem.tintOverride.w < -0.5f) && ((i + 1) < elemCount);
+        bool isMetaballLeader = (elem.tintOverride.w < -0.5f && elem.tintOverride.w > -1.5f) && ((i + 1) < elemCount);
+        bool canFuseWithIsland = islandFusionEnabled && (elem.tintOverride.w < -0.5f);
 
         float sd;
         float2 n;
@@ -417,23 +470,24 @@ fragment float4 liquidGlassFragment(
 
         if (isMetaballLeader) {
             GlassElementUniform elemB = elements[i + 1];
-            i += 1; // Consume companion droplet in unified liquid fusion pass
+            i += 1;
 
             float2 cA = elem.centerAndHalfSize.xy;
             float2 hsA = max(elem.centerAndHalfSize.zw, float2(4.0f));
             float2 relA = posPt - cA;
             float strA = clamp(elem.shapeAndTransform.z, 0.65f, 1.48f);
-            float extA = max(hsA.x, hsA.y) * max(strA, 1.0f / strA) + 64.0f;
+            float extA = max(hsA.x, hsA.y) * max(strA, 1.0f / strA) + 74.0f;
 
             float2 cB = elemB.centerAndHalfSize.xy;
             float2 hsB = max(elemB.centerAndHalfSize.zw, float2(4.0f));
             float2 relB = posPt - cB;
             float strB = clamp(elemB.shapeAndTransform.z, 0.65f, 1.48f);
-            float extB = max(hsB.x, hsB.y) * max(strB, 1.0f / strB) + 64.0f;
+            float extB = max(hsB.x, hsB.y) * max(strB, 1.0f / strB) + 74.0f;
 
+            bool nearIsland = (posPt.y < 235.0f) && (min(cA.y - hsA.y, cB.y - hsB.y) < 165.0f);
             bool inA = (abs(relA.x) <= extA && abs(relA.y) <= extA);
             bool inB = (abs(relB.x) <= extB && abs(relB.y) <= extB);
-            if (!inA && !inB) {
+            if (!inA && !inB && !nearIsland) {
                 continue;
             }
 
@@ -446,8 +500,17 @@ fragment float4 liquidGlassFragment(
             float k = fusionK * clamp(elemB.styleParams.x, 0.0f, 1.0f);
             float h = clamp(0.5f + 0.5f * (sdnB.x - sdnA.x) / max(k, 0.01f), 0.0f, 1.0f);
             sd = mix(sdnB.x, sdnA.x, h) - k * h * (1.0f - h);
-
             float2 blendedN = mix(sdnB.yz, sdnA.yz, h);
+
+            // Fuse droplets seamlessly into Hardware Dynamic Island when dragged near top cutout!
+            if (canFuseWithIsland && nearIsland) {
+                float3 sdnIsl = evaluateHardwareIslandSDF(posPt, scene);
+                float kIsl = 38.0f;
+                float hIsl = clamp(0.5f + 0.5f * (sdnIsl.x - sd) / kIsl, 0.0f, 1.0f);
+                sd = mix(sdnIsl.x, sd, hIsl) - kIsl * hIsl * (1.0f - hIsl);
+                blendedN = mix(sdnIsl.yz, blendedN, hIsl);
+            }
+
             float nLen = length(blendedN);
             n = nLen > 1e-4f ? (blendedN / nLen) : float2(0.0f, -1.0f);
 
@@ -458,21 +521,9 @@ fragment float4 liquidGlassFragment(
             frostBoost = mix(elemB.styleParams.z, elem.styleParams.z, h);
             rimBoost = mix(elemB.shapeAndTransform.w, elem.shapeAndTransform.w, h);
 
-            // Unified metaball shadow + clear caustic glow
             if (sd > -0.5f && sd < 42.0f) {
-                float2 shOff = -lightDir * (8.0f * elevation) + float2(0.0f, 9.0f * elevation);
-                float shA = sdRoundBox(applyLiquidDeform(relA - shOff, uA, strA), hsA, elem.shapeAndTransform.x);
-                float shB = sdRoundBox(applyLiquidDeform(relB - shOff, uB, strB), hsB, elemB.shapeAndTransform.x);
-                float hh = clamp(0.5f + 0.5f * (shB - shA) / max(k, 0.01f), 0.0f, 1.0f);
-                float shadowSD = mix(shB, shA, hh) - k * hh * (1.0f - hh);
-                if (shadowSD > -4.0f && shadowSD < 42.0f) {
-                    float ambient = exp(-max(0.0f, sd) * 0.24f) * 0.16f;
-                    float drop = exp(-max(0.0f, shadowSD) * 0.085f) * 0.30f;
-                    color *= (1.0f - clamp((ambient + drop) * elemOpacity, 0.0f, 0.50f));
-                    if (tintMode == 0 && shadowSD > -2.0f && shadowSD < 14.0f) {
-                        color += float3(0.85f, 0.96f, 1.0f) * (exp(-abs(shadowSD - 3.5f) * 0.28f) * 0.10f);
-                    }
-                }
+                float ambient = exp(-max(0.0f, sd) * 0.20f) * 0.24f;
+                color *= (1.0f - clamp(ambient * elemOpacity, 0.0f, 0.42f));
             }
         } else {
             float2 center = elem.centerAndHalfSize.xy;
@@ -481,10 +532,13 @@ fragment float4 liquidGlassFragment(
 
             float stretch = clamp(elem.shapeAndTransform.z, 0.60f, 1.55f);
             float maxScale = max(stretch, 1.0f / stretch);
-            float maxExtent = max(halfSize.x, halfSize.y) * maxScale + 48.0f;
+            float maxExtent = max(halfSize.x, halfSize.y) * maxScale + 64.0f;
+            bool fuseSingleToIsland = (elem.tintOverride.w < -1.5f) && (posPt.y < 235.0f) && (center.y - halfSize.y < 165.0f);
 
             if (abs(rel.x) > maxExtent || abs(rel.y) > maxExtent) {
-                continue;
+                if (!fuseSingleToIsland) {
+                    continue;
+                }
             }
 
             float radius = elem.shapeAndTransform.x;
@@ -494,7 +548,18 @@ fragment float4 liquidGlassFragment(
 
             float3 sdn = sdAndNormalDeformedBox(rel, halfSize, radius, uDir, stretch);
             sd = sdn.x;
-            n = sdn.yz;
+            float2 rawN = sdn.yz;
+
+            if (fuseSingleToIsland) {
+                float3 sdnIsl = evaluateHardwareIslandSDF(posPt, scene);
+                float kIsl = 38.0f;
+                float hIsl = clamp(0.5f + 0.5f * (sdnIsl.x - sd) / kIsl, 0.0f, 1.0f);
+                sd = mix(sdnIsl.x, sd, hIsl) - kIsl * hIsl * (1.0f - hIsl);
+                rawN = mix(sdnIsl.yz, rawN, hIsl);
+            }
+
+            float rnLen = length(rawN);
+            n = rnLen > 1e-4f ? (rawN / rnLen) : float2(0.0f, -1.0f);
             domeNorm = rel / max(halfSize, float2(1.0f));
             minDim = min(halfSize.x, halfSize.y);
             refScale = elem.styleParams.y;
@@ -526,7 +591,6 @@ fragment float4 liquidGlassFragment(
 
         float dist = max(0.0f, -sd);
 
-        // Dual-zone meniscus bevel + gentle spherical dome magnification
         float bz = clamp(globalBezel, 4.0f, max(5.0f, minDim * 0.92f));
         float t = clamp(dist / bz, 0.0f, 1.0f);
         float meniscus = pow(1.0f - t, 2.35f);
@@ -548,7 +612,6 @@ fragment float4 liquidGlassFragment(
         float satFactor = (tintMode == 0 || frostBoost < -1.0f) ? 1.42f : 1.24f;
         refracted = clamp(mix(float3(luma), refracted, satFactor), 0.0f, 1.2f);
 
-        // Material tint modes (crystal magnifying droplets with negative frostBoost stay ultra-clear!)
         if (frostBoost < -1.5f) {
             refracted = mix(refracted, float3(0.96f, 0.99f, 1.0f), 0.06f);
         } else if (tintMode == 1) {

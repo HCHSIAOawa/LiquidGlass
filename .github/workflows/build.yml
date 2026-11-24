@@ -7,23 +7,41 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Select latest Xcode 26+ SDK & print environment
+        run: |
+          echo "Available Xcode bundles:"
+          ls -d /Applications/Xcode*.app || true
+          LATEST_XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -v -i beta | sort -V | tail -n 1 || true)
+          if [ -n "$LATEST_XCODE" ] && [ -d "$LATEST_XCODE/Contents/Developer" ]; then
+            echo "Selecting $LATEST_XCODE"
+            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
+          fi
+          xcodebuild -version
+          xcodebuild -showsdks
+
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
 
       - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Verify generated Info.plist keys
         run: |
-          plutil -lint Info.plist
-          plutil -p Info.plist
+          mkdir -p BuildSupport
+          xcodegen generate
 
-      - name: Build unsigned app
+      - name: Verify generated Info.plist files
+        run: |
+          plutil -lint BuildSupport/App-Info.plist
+          plutil -lint BuildSupport/Widget-Info.plist
+
+      - name: Build unsigned App + WidgetExtension
         run: |
           xcodebuild -project LiquidGlass.xcodeproj \
             -scheme LiquidGlass \
@@ -34,12 +52,18 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
-      - name: Verify final App Bundle Info.plist (120Hz ProMotion)
+      - name: Verify 120Hz, Live Activities & Embedded WidgetExtension (.appex)
         run: |
-          APP_PLIST="build/Build/Products/Release-iphoneos/LiquidGlass.app/Info.plist"
-          plutil -p "$APP_PLIST" | grep -E "CADisableMinimumFrameDurationOnPhone|CFBundleShortVersionString"
+          APP_DIR="build/Build/Products/Release-iphoneos/LiquidGlass.app"
+          APP_PLIST="$APP_DIR/Info.plist"
+          WIDGET_DIR="$APP_DIR/PlugIns/LiquidGlassWidget.appex"
+          plutil -p "$APP_PLIST" | grep -E "CADisableMinimumFrameDurationOnPhone|NSSupportsLiveActivities|CFBundleShortVersionString"
+          test -d "$WIDGET_DIR"
+          plutil -p "$WIDGET_DIR/Info.plist" | grep "com.apple.widgetkit-extension"
+          echo "Embedded PlugIns contents:"
+          ls -la "$APP_DIR/PlugIns/"
 
-      - name: Package IPA
+      - name: Package IPA (Main App + Embedded WidgetExtension)
         run: |
           mkdir -p Payload
           cp -r build/Build/Products/Release-iphoneos/LiquidGlass.app Payload/

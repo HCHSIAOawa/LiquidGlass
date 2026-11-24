@@ -4,6 +4,7 @@ import PhotosUI
 struct ContentView: View {
     @State private var controller = GlassSceneController()
     @State private var selectedPhotoItem: PhotosPickerItem?
+    @Namespace private var glassMorphNamespace
 
     var body: some View {
         GeometryReader { safeGeo in
@@ -18,7 +19,7 @@ struct ContentView: View {
                 let dockCenterY = controller.dockCenterY(for: size.height, safeBottom: safeBottom)
 
                 ZStack(alignment: .topLeading) {
-                    // 1. Single-Pass 120Hz Pure Metal GPU Pipeline
+                    // 1. Single-Pass 120Hz Pure Metal GPU Pipeline (Wallpapers + Ripples + Metaball Droplets + Island Halo)
                     MetalLiquidGlassView(controller: controller)
                         .frame(width: size.width, height: size.height)
 
@@ -45,86 +46,112 @@ struct ContentView: View {
                                 }
                         )
 
-                    // 3. Zone 0: Dual-Droplet Liquid Fusion Lab Pill Bar
-                    if controller.labBarReveal > 0.005 {
-                        let lScale = 0.88 + 0.12 * controller.labBarReveal
-                        LensFusionLabPillOverlay(controller: controller, pillWidth: labPillWidth)
-                            .scaleEffect(lScale)
-                            .opacity(Double(min(1.0, max(0.0, controller.labBarReveal))))
-                            .position(x: size.width * 0.5, y: safeTop + 74)
-                            .allowsHitTesting(controller.isLensLabBarVisible)
+                    // 3. Interactive Liquid Droplets (Main Hero Lens + Fusable Companion Droplet)
+                    if !controller.isDropletSwallowedByIsland {
+                        HeroLensHitTarget(controller: controller)
                     }
-
-                    // 4. Zone 1: Dynamic Music & Synth Beat Card
-                    if controller.musicReveal > 0.005 {
-                        let mScale = 0.84 + 0.16 * controller.musicReveal
-                        MusicPlayerCardOverlay(controller: controller, cardWidth: cardWidth)
-                            .scaleEffect(mScale)
-                            .opacity(Double(min(1.0, max(0.0, controller.musicReveal))))
-                            .position(controller.musicCardCenter)
-                            .allowsHitTesting(controller.isMusicVisible)
-                    }
-
-                    // 5. Zone 2: Liquid Control Hub Card
-                    if controller.controlReveal > 0.005 {
-                        let cScale = 0.84 + 0.16 * controller.controlReveal
-                        MiniControlCenterOverlay(controller: controller, cardWidth: cardWidth)
-                            .scaleEffect(cScale)
-                            .opacity(Double(min(1.0, max(0.0, controller.controlReveal))))
-                            .position(controller.controlCardCenter)
-                            .allowsHitTesting(controller.isControlVisible)
-                    }
-
-                    // 6. Zone 3: Spatial Weather & 24h Solar Arc Card
-                    if controller.weatherReveal > 0.005 {
-                        let wScale = 0.84 + 0.16 * controller.weatherReveal
-                        WeatherSolarCardOverlay(controller: controller, cardWidth: cardWidth)
-                            .scaleEffect(wScale)
-                            .opacity(Double(min(1.0, max(0.0, controller.weatherReveal))))
-                            .position(controller.weatherCardCenter)
-                            .allowsHitTesting(controller.isWeatherVisible)
-                    }
-
-                    // 7. Interactive Liquid Droplets (Main Hero Lens + Fusable Companion Droplet)
-                    HeroLensHitTarget(controller: controller)
 
                     if controller.companionReveal > 0.02 {
                         CompanionDropletHitTarget(controller: controller)
-                            .allowsHitTesting(controller.dualDropletEnabled)
+                            .allowsHitTesting(controller.dualDropletEnabled && !controller.isVaultedInIsland)
                     }
 
-                    // 8. Zone 4: Optical & Wallpaper Studio Drawer
-                    if controller.drawerReveal > 0.005 {
-                        let dScale = 0.92 + 0.08 * controller.drawerReveal
-                        let drawerH: CGFloat = 360
-                        let drawerBaseY = size.height - safeBottom - 86 - drawerH * 0.5
-                        let slideOffset = (1.0 - min(1.0, controller.drawerReveal)) * 44
+                    // 4. iOS 27 Native GlassEffectContainer Wrapping All Morphing Cards, HUD, Island & Dock
+                    AdaptiveGlassContainer(spacing: 28.0, useNativeGlass: controller.useNativeSystemGlass) {
+                        ZStack(alignment: .topLeading) {
+                            // In-App Hardware Dynamic Island Portal (Swallow, Pull-Down Spit, Tap Vault, Long-Press Live Activity)
+                            DynamicIslandPortalOverlay(
+                                controller: controller,
+                                namespace: glassMorphNamespace
+                            )
 
-                        StudioDrawerOverlay(
-                            controller: controller,
-                            selectedPhotoItem: $selectedPhotoItem,
-                            drawerWidth: drawerWidth
-                        )
-                        .scaleEffect(dScale)
-                        .opacity(Double(min(1.0, max(0.0, controller.drawerReveal))))
-                        .position(x: size.width * 0.5, y: drawerBaseY + slideOffset)
-                        .allowsHitTesting(controller.isStudioVisible)
+                            if controller.labBarReveal > 0.005 {
+                                let lScale = 0.88 + 0.12 * controller.labBarReveal
+                                LensFusionLabPillOverlay(
+                                    controller: controller,
+                                    pillWidth: labPillWidth,
+                                    namespace: glassMorphNamespace
+                                )
+                                .scaleEffect(lScale)
+                                .opacity(Double(min(1.0, max(0.0, controller.labBarReveal))))
+                                .position(x: size.width * 0.5, y: safeTop + 84)
+                                .allowsHitTesting(controller.isLensLabBarVisible)
+                            }
+
+                            if controller.musicReveal > 0.005 {
+                                let mScale = 0.25 + 0.75 * controller.musicReveal
+                                MusicPlayerCardOverlay(
+                                    controller: controller,
+                                    cardWidth: cardWidth,
+                                    namespace: glassMorphNamespace
+                                )
+                                .scaleEffect(mScale)
+                                .opacity(Double(min(1.0, max(0.0, controller.musicReveal))))
+                                .position(controller.musicCardCenter)
+                                .allowsHitTesting(controller.isMusicVisible)
+                            }
+
+                            if controller.controlReveal > 0.005 {
+                                let cScale = 0.25 + 0.75 * controller.controlReveal
+                                MiniControlCenterOverlay(
+                                    controller: controller,
+                                    cardWidth: cardWidth,
+                                    namespace: glassMorphNamespace
+                                )
+                                .scaleEffect(cScale)
+                                .opacity(Double(min(1.0, max(0.0, controller.controlReveal))))
+                                .position(controller.controlCardCenter)
+                                .allowsHitTesting(controller.isControlVisible)
+                            }
+
+                            if controller.weatherReveal > 0.005 {
+                                let wScale = 0.25 + 0.75 * controller.weatherReveal
+                                WeatherSolarCardOverlay(
+                                    controller: controller,
+                                    cardWidth: cardWidth,
+                                    namespace: glassMorphNamespace
+                                )
+                                .scaleEffect(wScale)
+                                .opacity(Double(min(1.0, max(0.0, controller.weatherReveal))))
+                                .position(controller.weatherCardCenter)
+                                .allowsHitTesting(controller.isWeatherVisible)
+                            }
+
+                            if controller.drawerReveal > 0.005 {
+                                let dScale = 0.92 + 0.08 * controller.drawerReveal
+                                let drawerH: CGFloat = 360
+                                let drawerBaseY = size.height - safeBottom - 86 - drawerH * 0.5
+                                let slideOffset = (1.0 - min(1.0, controller.drawerReveal)) * 44
+
+                                StudioDrawerOverlay(
+                                    controller: controller,
+                                    selectedPhotoItem: $selectedPhotoItem,
+                                    drawerWidth: drawerWidth,
+                                    namespace: glassMorphNamespace
+                                )
+                                .scaleEffect(dScale)
+                                .opacity(Double(min(1.0, max(0.0, controller.drawerReveal))))
+                                .position(x: size.width * 0.5, y: drawerBaseY + slideOffset)
+                                .allowsHitTesting(controller.isStudioVisible)
+                            }
+
+                            NativeLiquidDockOverlay(
+                                controller: controller,
+                                screenWidth: size.width,
+                                namespace: glassMorphNamespace
+                            )
+                            .position(x: size.width * 0.5, y: dockCenterY)
+
+                            TopStatusHUD(
+                                controller: controller,
+                                selectedPhotoItem: $selectedPhotoItem,
+                                namespace: glassMorphNamespace
+                            )
+                            .padding(.horizontal, 14)
+                            .padding(.top, safeTop + 14)
+                        }
+                        .frame(width: size.width, height: size.height)
                     }
-
-                    // 9. Native iOS 26 Sliding Jelly-Magnifier Bottom Liquid Dock
-                    NativeLiquidDockOverlay(
-                        controller: controller,
-                        screenWidth: size.width
-                    )
-                    .position(x: size.width * 0.5, y: dockCenterY)
-
-                    // 10. Safe-Area Top Status HUD
-                    TopStatusHUD(
-                        controller: controller,
-                        selectedPhotoItem: $selectedPhotoItem
-                    )
-                    .padding(.horizontal, 14)
-                    .padding(.top, safeTop + 6)
                 }
                 .coordinateSpace(.named("screen"))
                 .frame(width: size.width, height: size.height)
@@ -136,6 +163,9 @@ struct ContentView: View {
                 }
             }
             .ignoresSafeArea()
+        }
+        .onOpenURL { url in
+            controller.handleIncomingURL(url)
         }
         .onChange(of: selectedPhotoItem) { _, newItem in
             guard let newItem else { return }
@@ -150,8 +180,6 @@ struct ContentView: View {
         }
     }
 }
-
-// MARK: - Isolated Droplet Hit Targets (Prevent 120Hz Physics From Invalidating Sibling Views)
 
 private struct HeroLensHitTarget: View {
     let controller: GlassSceneController
@@ -192,12 +220,12 @@ private struct HeroLensHitTarget: View {
                 )
 
             if controller.showGestureHint {
-                Text("拖曳雙水滴融合 · 底部按住滑動果凍放大")
+                Text("拖向動態島吸入融合 · 點擊動態島收納視窗")
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.90))
+                    .foregroundStyle(Color.white.opacity(0.92))
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
-                    .background(Color.black.opacity(0.42), in: Capsule())
+                    .background(Color.black.opacity(0.45), in: Capsule())
                     .offset(y: lensH * 0.5 + 22)
                     .allowsHitTesting(false)
             }
