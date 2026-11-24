@@ -6,7 +6,6 @@ struct ContentView: View {
     @State private var isDragging: Bool = false
     @State private var lightPoint: CGPoint = CGPoint(x: 120, y: 180)
 
-    // 光學可調參數
     @State private var refraction: Double = 46
     @State private var bezel: Double = 34
     @State private var dispersion: Double = 0.12
@@ -28,28 +27,25 @@ struct ContentView: View {
             let cornerRadius: CGFloat = isPillShape ? 32 : 96
 
             ZStack {
-                // 底層動態背景 + 透鏡即時折射着色的圖層
                 TimelineView(.animation) { timeline in
                     let t = timeline.date.timeIntervalSinceReferenceDate
                     wallpaperLayer(size: size, time: t)
                         .layerEffect(
                             ShaderLibrary.liquidGlass(
                                 .boundingRect,
-                                .float2(center.x, center.y),
-                                .float2(halfSize.width, halfSize.height),
-                                .float(cornerRadius),
-                                .float(refraction),
-                                .float(bezel),
-                                .float(dispersion),
-                                .float(frost),
-                                .float2(lightPoint.x, lightPoint.y)
+                                .float2(Float(center.x), Float(center.y)),
+                                .float2(Float(halfSize.width), Float(halfSize.height)),
+                                .float(Float(cornerRadius)),
+                                .float(Float(refraction)),
+                                .float(Float(bezel)),
+                                .float(Float(dispersion)),
+                                .float(Float(frost)),
+                                .float2(Float(lightPoint.x), Float(lightPoint.y))
                             ),
                             maxSampleOffset: CGSize(width: 160, height: 160)
                         )
                 }
-                .ignoresSafeArea()
 
-                // 透明觸控感應層（帶彈簧果凍縮放手感）
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.white.opacity(0.001))
                     .frame(width: halfSize.width * 2, height: halfSize.height * 2)
@@ -74,15 +70,16 @@ struct ContentView: View {
                             }
                     )
 
-                // 底部原生材質控制面板
                 VStack {
                     Spacer()
                     controlPanel
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+                .padding(.bottom, 36)
             }
+            .frame(width: size.width, height: size.height)
         }
+        .ignoresSafeArea()
     }
 
     @ViewBuilder
@@ -90,7 +87,6 @@ struct ContentView: View {
         ZStack {
             Color(red: 0.03, green: 0.05, blue: 0.11)
 
-            // 流動極光色塊
             Circle()
                 .fill(Color(red: 1.0, green: 0.18, blue: 0.34).opacity(0.75))
                 .frame(width: 300, height: 300)
@@ -109,7 +105,6 @@ struct ContentView: View {
                 .blur(radius: 60)
                 .offset(x: sin(time * 0.5 + 1.5) * 85, y: cos(time * 0.65) * 70 + 130)
 
-            // 滾動字體排版層（讓折射扭曲最明顯）
             VStack(spacing: 10) {
                 ForEach(0..<8, id: \.self) { row in
                     let line = (words + words).joined(separator: " — ")
