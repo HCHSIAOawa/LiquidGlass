@@ -18,6 +18,11 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Verify generated Info.plist keys
+        run: |
+          plutil -lint Info.plist
+          plutil -p Info.plist
+
       - name: Build unsigned app
         run: |
           xcodebuild -project LiquidGlass.xcodeproj \
@@ -28,6 +33,11 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
+
+      - name: Verify final App Bundle Info.plist (120Hz ProMotion)
+        run: |
+          APP_PLIST="build/Build/Products/Release-iphoneos/LiquidGlass.app/Info.plist"
+          plutil -p "$APP_PLIST" | grep -E "CADisableMinimumFrameDurationOnPhone|CFBundleShortVersionString"
 
       - name: Package IPA
         run: |

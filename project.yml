@@ -1,17 +1,35 @@
 name: LiquidGlass
 options:
   bundleIdPrefix: com.custom
+  deploymentTarget:
+    iOS: "17.0"
 targets:
   LiquidGlass:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
-    sources: [Sources]
+    sources:
+      - path: Sources
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: LiquidGlass
+        CFBundleShortVersionString: "2.0.0"
+        CFBundleVersion: "2"
+        CADisableMinimumFrameDurationOnPhone: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIApplicationSupportsIndirectInputEvents: true
+        UIRequiresFullScreen: true
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSPhotoLibraryUsageDescription: "匯入相簿照片作為液態玻璃的即時折射背景桌布。"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.custom.liquidglass
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CLANG_ENABLE_MODULES: YES
+        MTL_FAST_MATH: YES
