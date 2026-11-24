@@ -2,23 +2,10 @@
 #include <SwiftUI/SwiftUI_Metal.h>
 using namespace metal;
 
-float sdRoundBox(float2 p, float2 b, float r) {
+static float sdRoundBox(float2 p, float2 b, float r) {
     float rr = min(r, min(b.x, b.y));
     float2 q = abs(p) - b + rr;
-    return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - rr;
-}
-
-float3 sampleFrosted(SwiftUI::Layer layer, float2 pos, float frost) {
-    if (frost <= 0.1) {
-        return layer.sample(pos).rgb;
-    }
-    float r = frost * 2.2;
-    float3 sum = layer.sample(pos).rgb * 0.28;
-    sum += layer.sample(pos + float2( r,  0.0)).rgb * 0.18;
-    sum += layer.sample(pos + float2(-r,  0.0)).rgb * 0.18;
-    sum += layer.sample(pos + float2( 0.0,  r)).rgb * 0.18;
-    sum += layer.sample(pos + float2( 0.0, -r)).rgb * 0.18;
-    return sum;
+    return min(max(q.x, q.y), 0.0f) + length(max(q, 0.0f)) - rr;
 }
 
 [[ stitchable ]] half4 liquidGlass(
@@ -38,53 +25,77 @@ float3 sampleFrosted(SwiftUI::Layer layer, float2 pos, float frost) {
     float2 rel = position - center;
     float sd = sdRoundBox(rel, halfSize, radius);
 
-    // 鏡頭外部：僅繪製柔和投影
-    if (sd > 1.5) {
-        float shadowDist = sdRoundBox(rel - float2(0.0, 10.0), halfSize, radius);
-        if (shadowDist > 0.0 && shadowDist < 42.0) {
-            float shadow = exp(-shadowDist * 0.09) * 0.36;
-            return half4(base.rgb * half(1.0 - shadow), base.a);
+    if (sd > 1.5f) {
+        float shadowDist = sdRoundBox(rel - float2(0.0f, 10.0f), halfSize, radius);
+        if (shadowDist > 0.0f && shadowDist < 42.0f) {
+            float shadow = exp(-shadowDist * 0.09f) * 0.36f;
+            return half4(base.rgb * half(1.0f - shadow), base.a);
         }
         return base;
     }
 
-    // 計算法線方向與邊緣倒角深度
-    float eps = 1.0;
+    float eps = 1.0f;
     float2 grad = float2(
-        sdRoundBox(rel + float2(eps, 0.0), halfSize, radius) - sdRoundBox(rel - float2(eps, 0.0), halfSize, radius),
-        sdRoundBox(rel + float2(0.0, eps), halfSize, radius) - sdRoundBox(rel - float2(0.0, eps), halfSize, radius)
+        sdRoundBox(rel + float2(eps, 0.0f), halfSize, radius) - sdRoundBox(rel - float2(eps, 0.0f), halfSize, radius),
+        sdRoundBox(rel + float2(0.0f, eps), halfSize, radius) - sdRoundBox(rel - float2(0.0f, eps), halfSize, radius)
     );
     float gLen = length(grad);
-    float2 n = gLen > 1e-4 ? grad / gLen : float2(0.0, -1.0);
+    float2 n = gLen > 1e-4f ? grad / gLen : float2(0.0f, -1.0f);
 
-    float dist = max(0.0, -sd);
-    float bz = max(2.0, min(bezel, min(halfSize.x, halfSize.y)));
-    float t = clamp(dist / bz, 0.0, 1.0);
-    float edgeCurve = (1.0 - t) * (1.0 - t);
+    float dist = max(0.0f, -sd);
+    float bz = max(2.0f, min(bezel, min(halfSize.x, halfSize.y)));
+    float t = clamp(dist / bz, 0.0f, 1.0f);
+    float edgeCurve = (1.0f - t) * (1.0f - t);
 
-    // 結合邊緣折射與中央微放大效果
-    float2 disp = -n * edgeCurve * 0.72 - (rel / max(halfSize, float2(1.0))) * 0.28;
+    float2 disp = -n * edgeCurve * 0.72f - (rel / max(halfSize, float2(1.0f))) * 0.28f;
     float2 offset = disp * refraction;
 
-    // RGB 三通道微幅錯位產生彩虹色散
+    float2 posR = position + offset;
+    float2 posG = position + offset * (1.0f - dispersion);
+    float2 posB = position + offset * (1.0f - 2.0f * dispersion);
+
     float3 refracted;
-    refracted.r = sampleFrosted(layer, position + offset, frost).r;
-    refracted.g = sampleFrosted(layer, position + offset * (1.0 - dispersion), frost).g;
-    refracted.b = sampleFrosted(layer, position + offset * (1.0 - 2.0 * dispersion), frost).b;
+    if (frost <= 0.1f) {
+        refracted.r = float(layer.sample(posR).r);
+        refracted.g = float(layer.sample(posG).g);
+        refracted.b = float(layer.sample(posB).b);
+    } else {
+        float r = frost * 2.2f;
+        float2 o1 = float2( r,  0.0f);
+        float2 o2 = float2(-r,  0.0f);
+        float2 o3 = float2( 0.0f,  r);
+        float2 o4 = float2( 0.0f, -r);
 
-    // 提升玻璃內部色彩飽和度
-    float luma = dot(refracted, float3(0.2126, 0.7152, 0.0722));
-    refracted = clamp(mix(float3(luma), refracted, 1.45), 0.0, 1.0);
+        refracted.r = float(layer.sample(posR).r) * 0.28f
+                    + float(layer.sample(posR + o1).r) * 0.18f
+                    + float(layer.sample(posR + o2).r) * 0.18f
+                    + float(layer.sample(posR + o3).r) * 0.18f
+                    + float(layer.sample(posR + o4).r) * 0.18f;
 
-    // 菲涅耳邊緣高光（隨手指位置動態變化）
+        refracted.g = float(layer.sample(posG).g) * 0.28f
+                    + float(layer.sample(posG + o1).g) * 0.18f
+                    + float(layer.sample(posG + o2).g) * 0.18f
+                    + float(layer.sample(posG + o3).g) * 0.18f
+                    + float(layer.sample(posG + o4).g) * 0.18f;
+
+        refracted.b = float(layer.sample(posB).b) * 0.28f
+                    + float(layer.sample(posB + o1).b) * 0.18f
+                    + float(layer.sample(posB + o2).b) * 0.18f
+                    + float(layer.sample(posB + o3).b) * 0.18f
+                    + float(layer.sample(posB + o4).b) * 0.18f;
+    }
+
+    float luma = dot(refracted, float3(0.2126f, 0.7152f, 0.0722f));
+    refracted = clamp(mix(float3(luma), refracted, 1.45f), 0.0f, 1.0f);
+
     float2 toLight = lightPos - center;
-    float2 lDir = length(toLight) > 1.0 ? normalize(toLight) : normalize(float2(-0.6, -0.8));
+    float2 lDir = length(toLight) > 1.0f ? normalize(toLight) : normalize(float2(-0.6f, -0.8f));
     float rimAlign = abs(dot(n, lDir));
-    float rim = smoothstep(2.4, 0.0, dist) * (0.28 + 0.72 * pow(rimAlign, 2.0));
-    float innerGlow = smoothstep(16.0, 0.0, dist) * (0.12 + 0.22 * max(0.0, dot(-n, lDir)));
+    float rim = smoothstep(2.4f, 0.0f, dist) * (0.28f + 0.72f * pow(rimAlign, 2.0f));
+    float innerGlow = smoothstep(16.0f, 0.0f, dist) * (0.12f + 0.22f * max(0.0f, dot(-n, lDir)));
 
-    float3 glassCol = clamp(refracted + float3(1.0) * (rim * 0.85 + innerGlow), 0.0, 1.0);
-    float mask = smoothstep(1.2, -0.8, sd);
+    float3 glassCol = clamp(refracted + float3(1.0f) * (rim * 0.85f + innerGlow), 0.0f, 1.0f);
+    float mask = smoothstep(1.2f, -0.8f, sd);
     float3 outCol = mix(float3(base.rgb), glassCol, mask);
 
     return half4(half3(outCol), base.a);
